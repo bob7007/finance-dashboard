@@ -2,6 +2,7 @@ interface Env {
   PLAID_CLIENT_ID: string;
   PLAID_SECRET: string;
   PLAID_ENV: string;
+  PLAID_TOKEN_ENCRYPTION_KEY: string;
   finance_dashboard_db: D1Database;
 }
 
@@ -50,6 +51,164 @@ interface PlaidInvestmentsResponse {
   error_type?: string;
   error_code?: string;
   error_message?: string;
+}
+
+interface StoredPlaidItem {
+  item_id: string;
+  access_token: string | null;
+  encrypted_access_token: string | null;
+  access_token_iv: string | null;
+}
+
+const PLAID_TOKEN_IV_BYTES = 12;
+
+function base64ToBytes(
+  value: string,
+  fieldName: string
+) {
+  let binary: string;
+
+  try {
+    binary = atob(value);
+  } catch {
+    throw new Error(
+      `${fieldName} must be valid Base64`
+    );
+  }
+
+  return Uint8Array.from(
+    binary,
+    (character) => character.charCodeAt(0)
+  );
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  let binary = "";
+
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+
+  return btoa(binary);
+}
+
+async function getPlaidTokenEncryptionKey(
+  env: Env
+) {
+  if (!env.PLAID_TOKEN_ENCRYPTION_KEY) {
+    throw new Error(
+      "PLAID_TOKEN_ENCRYPTION_KEY is missing"
+    );
+  }
+
+  const keyBytes = base64ToBytes(
+    env.PLAID_TOKEN_ENCRYPTION_KEY,
+    "PLAID_TOKEN_ENCRYPTION_KEY"
+  );
+
+  if (keyBytes.byteLength !== 32) {
+    throw new Error(
+      "PLAID_TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes"
+    );
+  }
+
+  return crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptPlaidAccessToken(
+  accessToken: string,
+  env: Env
+) {
+  const key =
+    await getPlaidTokenEncryptionKey(env);
+
+  const iv = crypto.getRandomValues(
+    new Uint8Array(PLAID_TOKEN_IV_BYTES)
+  );
+
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+    },
+    key,
+    new TextEncoder().encode(accessToken)
+  );
+
+  return {
+    ciphertext: bytesToBase64(
+      new Uint8Array(ciphertext)
+    ),
+    iv: bytesToBase64(iv),
+  };
+}
+
+async function getPlaidAccessToken(
+  item: StoredPlaidItem,
+  env: Env
+) {
+  if (
+    item.encrypted_access_token ||
+    item.access_token_iv
+  ) {
+    if (
+      !item.encrypted_access_token ||
+      !item.access_token_iv
+    ) {
+      throw new Error(
+        `Encrypted token data is incomplete for Item ${item.item_id}`
+      );
+    }
+
+    const key =
+      await getPlaidTokenEncryptionKey(env);
+    const iv = base64ToBytes(
+      item.access_token_iv,
+      "access_token_iv"
+    );
+
+    if (iv.byteLength !== PLAID_TOKEN_IV_BYTES) {
+      throw new Error(
+        "access_token_iv must decode to exactly 12 bytes"
+      );
+    }
+
+    const ciphertext = base64ToBytes(
+      item.encrypted_access_token,
+      "encrypted_access_token"
+    );
+
+    try {
+      const plaintext = await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv,
+        },
+        key,
+        ciphertext
+      );
+
+      return new TextDecoder().decode(plaintext);
+    } catch {
+      throw new Error(
+        `Unable to decrypt token for Item ${item.item_id}`
+      );
+    }
+  }
+
+  if (item.access_token) {
+    return item.access_token;
+  }
+
+  throw new Error(
+    `No Plaid access token is stored for Item ${item.item_id}`
+  );
 }
 
 export default {
@@ -113,19 +272,23 @@ export default {
       try {
         const result = await env.finance_dashboard_db
           .prepare(`
-            SELECT item_id, access_token
+            SELECT
+              item_id,
+              access_token,
+              encrypted_access_token,
+              access_token_iv
             FROM plaid_items
           `)
-          .all<{
-            item_id: string;
-            access_token: string;
-          }>();
+          .all<StoredPlaidItem>();
 
         const accounts: PlaidAccount[] = [];
         const holdings: PlaidHolding[] = [];
         const securities: PlaidSecurity[] = [];
 
         for (const item of result.results) {
+          const accessToken =
+            await getPlaidAccessToken(item, env);
+
           const response = await fetch(
             "https://sandbox.plaid.com/investments/holdings/get",
             {
@@ -136,7 +299,7 @@ export default {
               body: JSON.stringify({
                 client_id: env.PLAID_CLIENT_ID,
                 secret: env.PLAID_SECRET,
-                access_token: item.access_token,
+                access_token: accessToken,
               }),
             }
           );
@@ -188,13 +351,14 @@ export default {
       try {
         const result = await env.finance_dashboard_db
           .prepare(`
-            SELECT item_id, access_token
+            SELECT
+              item_id,
+              access_token,
+              encrypted_access_token,
+              access_token_iv
             FROM plaid_items
           `)
-          .all<{
-            item_id: string;
-            access_token: string;
-          }>();
+          .all<StoredPlaidItem>();
 
         const portfolioAccounts: Array<{
           itemId: string;
@@ -232,6 +396,9 @@ export default {
         }> = [];
 
         for (const item of result.results) {
+          const accessToken =
+            await getPlaidAccessToken(item, env);
+
           const response = await fetch(
             "https://sandbox.plaid.com/investments/holdings/get",
             {
@@ -242,7 +409,7 @@ export default {
               body: JSON.stringify({
                 client_id: env.PLAID_CLIENT_ID,
                 secret: env.PLAID_SECRET,
-                access_token: item.access_token,
+                access_token: accessToken,
               }),
             }
           );
@@ -544,19 +711,45 @@ export default {
         });
       }
 
-      await env.finance_dashboard_db
-        .prepare(`
-          INSERT INTO plaid_items (
-            item_id,
-            access_token
+      try {
+        const encryptedToken =
+          await encryptPlaidAccessToken(
+            data.access_token,
+            env
+          );
+
+        await env.finance_dashboard_db
+          .prepare(`
+            INSERT INTO plaid_items (
+              item_id,
+              access_token,
+              encrypted_access_token,
+              access_token_iv
+            )
+            VALUES (?, NULL, ?, ?)
+          `)
+          .bind(
+            data.item_id,
+            encryptedToken.ciphertext,
+            encryptedToken.iv
           )
-          VALUES (?, ?)
-        `)
-        .bind(
-          data.item_id,
-          data.access_token
-        )
-        .run();
+          .run();
+      } catch (error) {
+        console.error(
+          "Unable to encrypt Plaid access token:",
+          error
+        );
+
+        return Response.json(
+          {
+            error:
+              "Unable to securely store Plaid access token",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
 
       // Never expose access_token to React
       return Response.json({
@@ -576,13 +769,14 @@ export default {
         const result =
           await env.finance_dashboard_db
             .prepare(`
-              SELECT item_id, access_token
+              SELECT
+                item_id,
+                access_token,
+                encrypted_access_token,
+                access_token_iv
               FROM plaid_items
             `)
-            .all<{
-              item_id: string;
-              access_token: string;
-            }>();
+            .all<StoredPlaidItem>();
 
         if (
           result.results.length === 0
@@ -601,6 +795,9 @@ export default {
         for (
           const item of result.results
         ) {
+          const accessToken =
+            await getPlaidAccessToken(item, env);
+
           const response = await fetch(
             "https://sandbox.plaid.com/accounts/get",
             {
@@ -619,7 +816,7 @@ export default {
                   env.PLAID_SECRET,
 
                 access_token:
-                  item.access_token,
+                  accessToken,
               }),
             }
           );
