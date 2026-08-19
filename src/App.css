@@ -118,6 +118,27 @@ button {
   cursor: not-allowed;
 }
 
+.refresh-button {
+  padding: 9px 15px;
+
+  border: 1px solid #2b3544;
+  border-radius: 7px;
+
+  background: #0e131b;
+  color: #aeb8c7;
+
+  cursor: pointer;
+
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.refresh-button:hover {
+  background: #151d29;
+  border-color: #435167;
+  color: #e0e6ef;
+}
+
 /* ----------------------------------------
    Navigation
 ----------------------------------------- */

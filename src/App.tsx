@@ -313,6 +313,13 @@ function App() {
           )}
 
           <button
+            className="refresh-button"
+            onClick={loadPortfolio}
+          >
+            Refresh
+          </button>
+
+          <button
             className="connect-button"
             disabled={!ready}
             onClick={() => open()}
