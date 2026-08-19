@@ -89,6 +89,9 @@ function App() {
   const [connectionStatus, setConnectionStatus] =
     useState("");
 
+  const [selectedAccountId, setSelectedAccountId] =
+    useState<string | null>(null);
+
   // --------------------------------------------------
   // Load normalized portfolio
   // --------------------------------------------------
@@ -265,6 +268,15 @@ function App() {
 
   const positionCount =
     portfolio?.holdings.length ?? 0;
+
+  const filteredHoldings =
+    selectedAccountId === null
+      ? portfolio?.holdings ?? []
+      : portfolio?.holdings.filter(
+          (holding) =>
+            holding.accountId ===
+            selectedAccountId
+        ) ?? [];
 
   const latestPriceDate =
     useMemo(() => {
@@ -453,9 +465,22 @@ function App() {
                   {portfolio.accounts.map(
                     (account) => (
                       <div
-                        className="account-card"
+                        className={`account-card ${
+                          selectedAccountId ===
+                          account.accountId
+                            ? "selected"
+                            : ""
+                        }`}
                         key={
                           account.accountId
+                        }
+                        onClick={() =>
+                          setSelectedAccountId(
+                            selectedAccountId ===
+                              account.accountId
+                              ? null
+                              : account.accountId
+                          )
                         }
                       >
                         <div className="account-card-top">
@@ -539,7 +564,7 @@ function App() {
                     </thead>
 
                     <tbody>
-                      {portfolio.holdings.map(
+                      {filteredHoldings.map(
                         (holding) => {
                           const gainClass =
                             holding.gain ===

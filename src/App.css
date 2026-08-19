@@ -359,6 +359,17 @@ button {
   border-radius: 9px;
 
   background: #0e131b;
+  cursor: pointer;
+}
+
+.account-card:hover {
+  border-color: #35445a;
+  background: #111822;
+}
+
+.account-card.selected {
+  border-color: #6997ff;
+  background: #111b2a;
 }
 
 .account-card-top {
