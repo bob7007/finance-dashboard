@@ -211,6 +211,20 @@ async function getPlaidAccessToken(
   );
 }
 
+function getPlaidBaseUrl(env: Env) {
+  if (env.PLAID_ENV === "sandbox") {
+    return "https://sandbox.plaid.com";
+  }
+
+  if (env.PLAID_ENV === "production") {
+    return "https://production.plaid.com";
+  }
+
+  throw new Error(
+    `Unsupported PLAID_ENV: ${env.PLAID_ENV}`
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -223,7 +237,7 @@ export default {
       request.method === "GET"
     ) {
       const response = await fetch(
-        "https://sandbox.plaid.com/link/token/create",
+        `${getPlaidBaseUrl(env)}/link/token/create`,
         {
           method: "POST",
           headers: {
@@ -290,7 +304,7 @@ export default {
             await getPlaidAccessToken(item, env);
 
           const response = await fetch(
-            "https://sandbox.plaid.com/investments/holdings/get",
+            `${getPlaidBaseUrl(env)}/investments/holdings/get`,
             {
               method: "POST",
               headers: {
@@ -400,7 +414,7 @@ export default {
             await getPlaidAccessToken(item, env);
 
           const response = await fetch(
-            "https://sandbox.plaid.com/investments/holdings/get",
+            `${getPlaidBaseUrl(env)}/investments/holdings/get`,
             {
               method: "POST",
               headers: {
@@ -671,7 +685,7 @@ export default {
       }
 
       const response = await fetch(
-        "https://sandbox.plaid.com/item/public_token/exchange",
+        `${getPlaidBaseUrl(env)}/item/public_token/exchange`,
         {
           method: "POST",
           headers: {
@@ -799,7 +813,7 @@ export default {
             await getPlaidAccessToken(item, env);
 
           const response = await fetch(
-            "https://sandbox.plaid.com/accounts/get",
+            `${getPlaidBaseUrl(env)}/accounts/get`,
             {
               method: "POST",
 
