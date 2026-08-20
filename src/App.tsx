@@ -568,7 +568,25 @@ function App() {
   const openDeleteWalletModal = (
     walletId: string
   ) => {
+    const wallet = cryptoWallets.find(
+      (candidate) => candidate.id === walletId
+    );
+
+    const holdingsCount =
+      developmentCryptoHoldings.filter(
+        (holding) => holding.walletId === walletId
+      ).length;
+
     setOpenWalletMenuId(null);
+
+    if (holdingsCount > 0 && wallet) {
+      openEditWalletModal(wallet);
+      setWalletValidationMessage(
+        `This wallet contains ${holdingsCount} holdings. Holdings management will be added next.`
+      );
+      return;
+    }
+
     setDeleteValidationMessage("");
     setDeleteWalletId(walletId);
   };
@@ -644,7 +662,10 @@ function App() {
     }, [portfolio]);
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onClick={() => setOpenWalletMenuId(null)}
+    >
       {/* --------------------------------------------
           Header
       --------------------------------------------- */}
@@ -1005,7 +1026,12 @@ function App() {
 
                               {openWalletMenuId ===
                                 wallet.id && (
-                                <div className="wallet-menu">
+                                <div
+                                  className="wallet-menu"
+                                  onClick={(event) =>
+                                    event.stopPropagation()
+                                  }
+                                >
                                   <button
                                     type="button"
                                     onClick={(event) => {
@@ -1330,12 +1356,21 @@ function App() {
       </main>
 
       {isAddWalletOpen && (
-        <div className="wallet-modal-backdrop">
+        <div
+          className="wallet-modal-backdrop"
+          onClick={() => {
+            resetWalletForm();
+            setIsAddWalletOpen(false);
+          }}
+        >
           <div
             className="wallet-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-wallet-title"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
             <div className="wallet-modal-header">
               <div>
