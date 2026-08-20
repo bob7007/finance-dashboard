@@ -90,7 +90,7 @@ function App() {
   const [connectionStatus, setConnectionStatus] =
     useState("");
 
-  const [selectedAccountId, setSelectedAccountId] =
+  const [selectedAccountKey, setSelectedAccountKey] =
     useState<string | null>(null);
 
   // --------------------------------------------------
@@ -271,12 +271,12 @@ function App() {
     portfolio?.holdings.length ?? 0;
 
   const filteredHoldings =
-    selectedAccountId === null
+    selectedAccountKey === null
       ? portfolio?.holdings ?? []
       : portfolio?.holdings.filter(
           (holding) =>
-            holding.accountId ===
-            selectedAccountId
+            `${holding.itemId}:${holding.accountId}` ===
+            selectedAccountKey
         ) ?? [];
 
   const latestPriceDate =
@@ -467,20 +467,20 @@ function App() {
                     (account) => (
                       <div
                         className={`account-card ${
-                          selectedAccountId ===
-                          account.accountId
+                          selectedAccountKey ===
+                          `${account.itemId}:${account.accountId}`
                             ? "selected"
                             : ""
                         }`}
                         key={
-                          account.accountId
+                          `${account.itemId}:${account.accountId}`
                         }
                         onClick={() =>
-                          setSelectedAccountId(
-                            selectedAccountId ===
-                              account.accountId
+                          setSelectedAccountKey(
+                            selectedAccountKey ===
+                              `${account.itemId}:${account.accountId}`
                               ? null
-                              : account.accountId
+                              : `${account.itemId}:${account.accountId}`
                           )
                         }
                       >
@@ -581,7 +581,7 @@ function App() {
 
                           return (
                             <tr
-                              key={`${holding.accountId}-${holding.securityId}`}
+                              key={`${holding.itemId}-${holding.accountId}-${holding.securityId}`}
                             >
                               <td>
                                 <span className="ticker">
