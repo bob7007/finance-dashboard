@@ -228,7 +228,10 @@ function getPlaidBaseUrl(env: Env) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
+    const redirectUri =
+      env.PLAID_ENV === "production"
+        ? "https://terminal.7007solutions.com/oauth-return"
+        : null;
     // --------------------------------------------------
     // Create Plaid Link token
     // --------------------------------------------------
@@ -253,9 +256,10 @@ export default {
               client_user_id: "personal-finance-user",
             },
 
-            products: [
-              "transactions",
+            products: ["transactions"],
+            additional_consented_products: [
               "investments",
+              "liabilities"
             ],
 
             transactions: {
@@ -264,6 +268,7 @@ export default {
 
             country_codes: ["US"],
             language: "en",
+            redirect_uri:redirectUri,
           }),
         }
       );
