@@ -372,6 +372,26 @@ button {
   font-weight: 600;
 }
 
+.add-wallet-button {
+  padding: 7px 11px;
+
+  border: 1px solid #3a4658;
+  border-radius: 6px;
+
+  background: #111722;
+  color: #c5cedb;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.add-wallet-button:hover {
+  background: #182131;
+  border-color: #536176;
+}
+
 /* ----------------------------------------
    Account cards
 ----------------------------------------- */

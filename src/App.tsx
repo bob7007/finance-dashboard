@@ -400,18 +400,11 @@ function App() {
       0
     );
 
-  const cryptoChange24h =
-    cryptoTotalValue === 0
-      ? 0
-      : developmentCryptoHoldings.reduce(
-          (total, holding) =>
-            total +
-            holding.value *
-              (holding.change24h / 100),
-          0
-        ) /
-          cryptoTotalValue *
-        100;
+  const cryptoAssetCount = new Set(
+    developmentCryptoHoldings.map(
+      (holding) => holding.coinId || holding.symbol
+    )
+  ).size;
 
   const filteredCryptoHoldings =
     selectedCryptoWalletId === null
@@ -665,13 +658,11 @@ function App() {
 
                   <div className="summary-card">
                     <span className="summary-label">
-                      24H Change
+                      Assets
                     </span>
 
                     <strong className="summary-value small">
-                      {formatPercent(
-                        cryptoChange24h
-                      )}
+                      {cryptoAssetCount}
                     </strong>
                   </div>
                 </section>
@@ -765,6 +756,13 @@ function App() {
 
                       <h2>Wallets</h2>
                     </div>
+
+                    <button
+                      className="add-wallet-button"
+                      onClick={() => {}}
+                    >
+                      + Add Wallet
+                    </button>
                   </div>
 
                   <div className="account-grid">
