@@ -392,6 +392,151 @@ button {
   border-color: #536176;
 }
 
+.wallet-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+
+  display: grid;
+  place-items: center;
+
+  padding: 24px;
+
+  background: rgba(4, 7, 11, 0.72);
+}
+
+.wallet-modal {
+  width: min(100%, 420px);
+
+  padding: 22px;
+
+  border: 1px solid #2b3544;
+  border-radius: 9px;
+
+  background: #0e131b;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.wallet-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+
+  margin-bottom: 22px;
+}
+
+.wallet-modal-header h2 {
+  margin: 0;
+
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.wallet-modal-close {
+  width: 30px;
+  height: 30px;
+
+  border: 1px solid #2b3544;
+  border-radius: 6px;
+
+  background: transparent;
+  color: #8d99aa;
+
+  cursor: pointer;
+
+  font-size: 20px;
+  line-height: 1;
+}
+
+.wallet-modal-close:hover {
+  border-color: #536176;
+  color: #e0e6ef;
+}
+
+.wallet-form-field {
+  display: grid;
+  gap: 7px;
+
+  margin-top: 16px;
+
+  color: #8d99aa;
+
+  font-size: 12px;
+}
+
+.wallet-form-field input,
+.wallet-form-field select {
+  width: 100%;
+
+  padding: 10px 11px;
+
+  border: 1px solid #2b3544;
+  border-radius: 6px;
+
+  background: #090f17;
+  color: #e8edf5;
+
+  font-size: 13px;
+}
+
+.wallet-form-field input:focus,
+.wallet-form-field select:focus {
+  outline: 1px solid #6997ff;
+  border-color: #6997ff;
+}
+
+.wallet-validation-message {
+  margin: 14px 0 0;
+
+  color: #f16f7b;
+
+  font-size: 12px;
+}
+
+.wallet-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+
+  margin-top: 24px;
+}
+
+.wallet-cancel-button,
+.wallet-submit-button {
+  padding: 8px 13px;
+
+  border-radius: 6px;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wallet-cancel-button {
+  border: 1px solid #2b3544;
+
+  background: transparent;
+  color: #aeb8c7;
+}
+
+.wallet-cancel-button:hover {
+  border-color: #536176;
+  color: #e0e6ef;
+}
+
+.wallet-submit-button {
+  border: 1px solid #3a4658;
+
+  background: #111722;
+  color: #eaf0f8;
+}
+
+.wallet-submit-button:hover {
+  background: #182131;
+  border-color: #536176;
+}
+
 /* ----------------------------------------
    Account cards
 ----------------------------------------- */

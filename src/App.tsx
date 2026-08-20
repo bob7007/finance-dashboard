@@ -208,6 +208,25 @@ function App() {
   const [selectedCryptoWalletId, setSelectedCryptoWalletId] =
     useState<string | null>(null);
 
+  const [cryptoWallets, setCryptoWallets] =
+    useState<CryptoWallet[]>(
+      developmentCryptoWallets
+    );
+
+  const [isAddWalletOpen, setIsAddWalletOpen] =
+    useState(false);
+
+  const [walletName, setWalletName] =
+    useState("");
+
+  const [walletType, setWalletType] =
+    useState<CryptoWallet["type"]>(
+      "hardware_wallet"
+    );
+
+  const [walletValidationMessage, setWalletValidationMessage] =
+    useState("");
+
   // --------------------------------------------------
   // Load normalized portfolio
   // --------------------------------------------------
@@ -424,6 +443,51 @@ function App() {
         (total, holding) => total + holding.value,
         0
       );
+
+  const resetWalletForm = () => {
+    setWalletName("");
+    setWalletType("hardware_wallet");
+    setWalletValidationMessage("");
+  };
+
+  const handleAddWallet = (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+
+    const trimmedName = walletName.trim();
+
+    if (!trimmedName) {
+      setWalletValidationMessage(
+        "Wallet name is required."
+      );
+      return;
+    }
+
+    const isDuplicate = cryptoWallets.some(
+      (wallet) =>
+        wallet.name.toLowerCase() ===
+        trimmedName.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setWalletValidationMessage(
+        "A wallet with this name already exists."
+      );
+      return;
+    }
+
+    setCryptoWallets((wallets) => [
+      ...wallets,
+      {
+        id: crypto.randomUUID(),
+        name: trimmedName,
+        type: walletType,
+      },
+    ]);
+    resetWalletForm();
+    setIsAddWalletOpen(false);
+  };
 
   const getWalletTypeLabel = (
     type: CryptoWallet["type"]
@@ -652,7 +716,7 @@ function App() {
                     </span>
 
                     <strong className="summary-value small">
-                      {developmentCryptoWallets.length}
+                      {cryptoWallets.length}
                     </strong>
                   </div>
 
@@ -759,14 +823,17 @@ function App() {
 
                     <button
                       className="add-wallet-button"
-                      onClick={() => {}}
+                      onClick={() => {
+                        setWalletValidationMessage("");
+                        setIsAddWalletOpen(true);
+                      }}
                     >
                       + Add Wallet
                     </button>
                   </div>
 
                   <div className="account-grid">
-                    {developmentCryptoWallets.map(
+                    {cryptoWallets.map(
                       (wallet) => (
                         <div
                           className={`account-card ${
@@ -998,7 +1065,7 @@ function App() {
 
                             <td>
                               <span className="account-pill">
-                                {developmentCryptoWallets.find(
+                                {cryptoWallets.find(
                                   (wallet) =>
                                     wallet.id ===
                                     holding.walletId
@@ -1079,6 +1146,105 @@ function App() {
             </>
           )}
       </main>
+
+      {isAddWalletOpen && (
+        <div className="wallet-modal-backdrop">
+          <div
+            className="wallet-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-wallet-title"
+          >
+            <div className="wallet-modal-header">
+              <div>
+                <p className="section-eyebrow">
+                  CRYPTO
+                </p>
+
+                <h2 id="add-wallet-title">
+                  Add Wallet
+                </h2>
+              </div>
+
+              <button
+                className="wallet-modal-close"
+                type="button"
+                aria-label="Close Add Wallet"
+                onClick={() => {
+                  resetWalletForm();
+                  setIsAddWalletOpen(false);
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleAddWallet}>
+              <label className="wallet-form-field">
+                <span>Wallet Name</span>
+                <input
+                  autoFocus
+                  value={walletName}
+                  onChange={(event) =>
+                    setWalletName(event.target.value)
+                  }
+                />
+              </label>
+
+              <label className="wallet-form-field">
+                <span>Type</span>
+                <select
+                  value={walletType}
+                  onChange={(event) =>
+                    setWalletType(
+                      event.target.value as CryptoWallet["type"]
+                    )
+                  }
+                >
+                  <option value="hardware_wallet">
+                    Hardware Wallet
+                  </option>
+                  <option value="software_wallet">
+                    Software Wallet
+                  </option>
+                  <option value="exchange">
+                    Exchange
+                  </option>
+                  <option value="other">
+                    Other
+                  </option>
+                </select>
+              </label>
+
+              {walletValidationMessage && (
+                <p className="wallet-validation-message">
+                  {walletValidationMessage}
+                </p>
+              )}
+
+              <div className="wallet-modal-actions">
+                <button
+                  className="wallet-cancel-button"
+                  type="button"
+                  onClick={() => {
+                    resetWalletForm();
+                    setIsAddWalletOpen(false);
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  className="wallet-submit-button"
+                  type="submit"
+                >
+                  Add Wallet
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
