@@ -45,6 +45,7 @@ interface PortfolioResponse {
 }
 
 interface CryptoHolding {
+  id: string;
   coinId: string;
   walletId: string;
   symbol: string;
@@ -99,19 +100,21 @@ const developmentCryptoHoldings: CryptoHolding[] =
   import.meta.env.DEV
     ? [
         {
+          id: "holding-kraken-btc",
           coinId: "btc-local",
-          walletId: "trezor-safe-3",
+          walletId: "kraken",
           symbol: "BTC",
           name: "Bitcoin",
-          quantity: 0.18,
+          quantity: 0.152,
           price: 64250,
-          value: 11565,
-          costBasis: 9800,
-          gain: 1765,
-          gainPercent: 18.01,
+          value: 9762,
+          costBasis: 8600,
+          gain: 1162,
+          gainPercent: 13.51,
           change24h: 2.4,
         },
         {
+          id: "holding-kraken-eth",
           coinId: "eth-local",
           walletId: "kraken",
           symbol: "ETH",
@@ -125,6 +128,105 @@ const developmentCryptoHoldings: CryptoHolding[] =
           change24h: 1.7,
         },
         {
+          id: "holding-kraken-sol",
+          coinId: "sol-local",
+          walletId: "kraken",
+          symbol: "SOL",
+          name: "Solana",
+          quantity: 9.5,
+          price: 172,
+          value: 1634,
+          costBasis: 1480,
+          gain: 154,
+          gainPercent: 10.41,
+          change24h: -0.8,
+        },
+        {
+          id: "holding-coinbase-btc",
+          coinId: "btc-local",
+          walletId: "coinbase",
+          symbol: "BTC",
+          name: "Bitcoin",
+          quantity: 0.08,
+          price: 64250,
+          value: 5140,
+          costBasis: 4700,
+          gain: 440,
+          gainPercent: 9.36,
+          change24h: 2.4,
+        },
+        {
+          id: "holding-coinbase-eth",
+          coinId: "eth-local",
+          walletId: "coinbase",
+          symbol: "ETH",
+          name: "Ethereum",
+          quantity: 1.1,
+          price: 3450,
+          value: 3795,
+          costBasis: 3600,
+          gain: 195,
+          gainPercent: 5.42,
+          change24h: 1.7,
+        },
+        {
+          id: "holding-coinbase-link",
+          coinId: "link-local",
+          walletId: "coinbase",
+          symbol: "LINK",
+          name: "Chainlink",
+          quantity: 28,
+          price: 14.8,
+          value: 414.4,
+          costBasis: 390,
+          gain: 24.4,
+          gainPercent: 6.26,
+          change24h: 3.1,
+        },
+        {
+          id: "holding-trezor-btc",
+          coinId: "btc-local",
+          walletId: "trezor-safe-3",
+          symbol: "BTC",
+          name: "Bitcoin",
+          quantity: 0.18,
+          price: 64250,
+          value: 11565,
+          costBasis: 9800,
+          gain: 1765,
+          gainPercent: 18.01,
+          change24h: 2.4,
+        },
+        {
+          id: "holding-trezor-sol",
+          coinId: "sol-local",
+          walletId: "trezor-safe-3",
+          symbol: "SOL",
+          name: "Solana",
+          quantity: 14,
+          price: 172,
+          value: 2408,
+          costBasis: 2200,
+          gain: 208,
+          gainPercent: 9.45,
+          change24h: -0.8,
+        },
+        {
+          id: "holding-trezor-link",
+          coinId: "link-local",
+          walletId: "trezor-safe-3",
+          symbol: "LINK",
+          name: "Chainlink",
+          quantity: 35,
+          price: 14.8,
+          value: 518,
+          costBasis: 480,
+          gain: 38,
+          gainPercent: 7.92,
+          change24h: 3.1,
+        },
+        {
+          id: "holding-phantom-sol",
           coinId: "sol-local",
           walletId: "phantom",
           symbol: "SOL",
@@ -138,17 +240,18 @@ const developmentCryptoHoldings: CryptoHolding[] =
           change24h: -0.8,
         },
         {
-          coinId: "link-local",
-          walletId: "coinbase",
-          symbol: "LINK",
-          name: "Chainlink",
-          quantity: 42,
-          price: 14.8,
-          value: 621.6,
-          costBasis: 560,
-          gain: 61.6,
-          gainPercent: 11,
-          change24h: 3.1,
+          id: "holding-phantom-eth",
+          coinId: "eth-local",
+          walletId: "phantom",
+          symbol: "ETH",
+          name: "Ethereum",
+          quantity: 0.75,
+          price: 3450,
+          value: 2587.5,
+          costBasis: 2400,
+          gain: 187.5,
+          gainPercent: 7.81,
+          change24h: 1.7,
         },
       ]
     : [];
@@ -213,6 +316,11 @@ function App() {
       developmentCryptoWallets
     );
 
+  const [cryptoHoldings, setCryptoHoldings] =
+    useState<CryptoHolding[]>(
+      developmentCryptoHoldings
+    );
+
   const [walletOrder, setWalletOrder] =
     useState<string[]>(() =>
       developmentCryptoWallets.map(
@@ -231,6 +339,9 @@ function App() {
 
   const [deleteValidationMessage, setDeleteValidationMessage] =
     useState("");
+
+  const [holdingToRemoveId, setHoldingToRemoveId] =
+    useState<string | null>(null);
 
   const [isAddWalletOpen, setIsAddWalletOpen] =
     useState(false);
@@ -433,21 +544,21 @@ function App() {
         ) ?? [];
 
   const cryptoTotalValue =
-    developmentCryptoHoldings.reduce(
+    cryptoHoldings.reduce(
       (total, holding) => total + holding.value,
       0
     );
 
   const cryptoAssetCount = new Set(
-    developmentCryptoHoldings.map(
+    cryptoHoldings.map(
       (holding) => holding.coinId || holding.symbol
     )
   ).size;
 
   const filteredCryptoHoldings =
     selectedCryptoWalletId === null
-      ? developmentCryptoHoldings
-      : developmentCryptoHoldings.filter(
+      ? cryptoHoldings
+      : cryptoHoldings.filter(
           (holding) =>
             holding.walletId ===
             selectedCryptoWalletId
@@ -464,15 +575,41 @@ function App() {
         Boolean(wallet)
     );
 
+    const editingWallet = editingWalletId
+      ? cryptoWallets.find(
+          (wallet) => wallet.id === editingWalletId
+        )
+      : undefined;
+
+    const editingWalletHoldings = editingWallet
+      ? cryptoHoldings.filter(
+          (holding) =>
+            holding.walletId === editingWallet.id
+        )
+      : [];
+
+    const holdingToRemove = holdingToRemoveId
+      ? cryptoHoldings.find(
+          (holding) => holding.id === holdingToRemoveId
+        )
+      : undefined;
+
+    const holdingToRemoveWallet = holdingToRemove
+      ? cryptoWallets.find(
+          (wallet) =>
+            wallet.id === holdingToRemove.walletId
+        )
+      : undefined;
+
     const deleteWalletHoldingCount = deleteWalletId
-      ? developmentCryptoHoldings.filter(
+        ? cryptoHoldings.filter(
           (holding) =>
             holding.walletId === deleteWalletId
         ).length
       : 0;
 
   const getWalletValue = (walletId: string) =>
-    developmentCryptoHoldings
+    cryptoHoldings
       .filter(
         (holding) => holding.walletId === walletId
       )
@@ -573,7 +710,7 @@ function App() {
     );
 
     const holdingsCount =
-      developmentCryptoHoldings.filter(
+      cryptoHoldings.filter(
         (holding) => holding.walletId === walletId
       ).length;
 
@@ -582,7 +719,7 @@ function App() {
     if (holdingsCount > 0 && wallet) {
       openEditWalletModal(wallet);
       setWalletValidationMessage(
-        `This wallet contains ${holdingsCount} holdings. Holdings management will be added next.`
+        "Remove all holdings before deleting this wallet."
       );
       return;
     }
@@ -597,14 +734,14 @@ function App() {
     }
 
     const holdingsCount =
-      developmentCryptoHoldings.filter(
+      cryptoHoldings.filter(
         (holding) =>
           holding.walletId === deleteWalletId
       ).length;
 
     if (holdingsCount > 0) {
       setDeleteValidationMessage(
-        `This wallet contains ${holdingsCount} holdings. Remove or move its holdings before deleting the wallet.`
+        "Remove all holdings before deleting this wallet."
       );
       return;
     }
@@ -625,6 +762,46 @@ function App() {
     }
 
     setDeleteWalletId(null);
+  };
+
+  const confirmHoldingRemoval = () => {
+    if (!holdingToRemoveId) {
+      return;
+    }
+
+    const holding = cryptoHoldings.find(
+      (current) => current.id === holdingToRemoveId
+    );
+
+    setCryptoHoldings((current) =>
+      current.filter(
+        (holding) => holding.id !== holdingToRemoveId
+      )
+    );
+
+    if (
+      holding &&
+      cryptoHoldings.filter(
+        (current) =>
+          current.walletId === holding.walletId &&
+          current.id !== holdingToRemoveId
+      ).length === 0
+    ) {
+      setWalletValidationMessage("");
+    }
+
+    setHoldingToRemoveId(null);
+  };
+
+  const handleDeleteFromEdit = () => {
+    if (!editingWalletId) {
+      return;
+    }
+
+    const walletId = editingWalletId;
+    resetWalletForm();
+    setIsAddWalletOpen(false);
+    openDeleteWalletModal(walletId);
   };
 
   const getWalletTypeLabel = (
@@ -1255,7 +1432,7 @@ function App() {
                     <tbody>
                       {filteredCryptoHoldings.map(
                         (holding) => (
-                          <tr key={holding.coinId}>
+                          <tr key={holding.id}>
                             <td>
                               <span className="ticker">
                                 {holding.symbol}
@@ -1435,6 +1612,55 @@ function App() {
                 </select>
               </label>
 
+              {editingWallet && (
+                <section className="wallet-holdings-section">
+                  <div className="wallet-holdings-header">
+                    <span>Holdings</span>
+                    <span>
+                      {editingWalletHoldings.length} {editingWalletHoldings.length === 1 ? "holding" : "holdings"}
+                    </span>
+                  </div>
+
+                  {editingWalletHoldings.length > 0 ? (
+                    <div className="wallet-holdings-list">
+                      {editingWalletHoldings.map(
+                        (holding) => (
+                          <div
+                            className="wallet-holding-row"
+                            key={holding.id}
+                          >
+                            <div>
+                              <strong>{holding.symbol}</strong>
+                              <span>
+                                {formatQuantity(
+                                  holding.quantity
+                                )} {holding.symbol}
+                              </span>
+                            </div>
+
+                            <button
+                              className="wallet-remove-holding-button"
+                              type="button"
+                              onClick={() =>
+                                setHoldingToRemoveId(
+                                  holding.id
+                                )
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  ) : (
+                    <p className="wallet-delete-message">
+                      No holdings in this wallet.
+                    </p>
+                  )}
+                </section>
+              )}
+
               {walletValidationMessage && (
                 <p className="wallet-validation-message">
                   {walletValidationMessage}
@@ -1453,6 +1679,17 @@ function App() {
                   Cancel
                 </button>
 
+                {editingWallet &&
+                  editingWalletHoldings.length === 0 && (
+                  <button
+                    className="wallet-delete-action"
+                    type="button"
+                    onClick={handleDeleteFromEdit}
+                  >
+                    Delete Wallet
+                  </button>
+                )}
+
                 <button
                   className="wallet-submit-button"
                   type="submit"
@@ -1468,12 +1705,20 @@ function App() {
       )}
 
       {deleteWalletId && (
-        <div className="wallet-modal-backdrop">
+        <div
+          className="wallet-modal-backdrop"
+          onClick={() =>
+            setDeleteWalletId(null)
+          }
+        >
           <div
             className="wallet-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-wallet-title"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
           >
             <div className="wallet-modal-header">
               <div>
@@ -1536,6 +1781,72 @@ function App() {
                 onClick={confirmDeleteWallet}
               >
                 Delete Wallet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {holdingToRemove && (
+        <div
+          className="wallet-modal-backdrop"
+          onClick={() =>
+            setHoldingToRemoveId(null)
+          }
+        >
+          <div
+            className="wallet-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-holding-title"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div className="wallet-modal-header">
+              <div>
+                <p className="section-eyebrow">
+                  HOLDINGS
+                </p>
+
+                <h2 id="remove-holding-title">
+                  Remove {holdingToRemove.symbol}?
+                </h2>
+              </div>
+
+              <button
+                className="wallet-modal-close"
+                type="button"
+                aria-label="Close Remove Holding"
+                onClick={() =>
+                  setHoldingToRemoveId(null)
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="wallet-delete-message">
+              This will remove this holding from {holdingToRemoveWallet?.name ?? "the wallet"}.
+            </p>
+
+            <div className="wallet-modal-actions">
+              <button
+                className="wallet-cancel-button"
+                type="button"
+                onClick={() =>
+                  setHoldingToRemoveId(null)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="wallet-submit-button"
+                type="button"
+                onClick={confirmHoldingRemoval}
+              >
+                Remove
               </button>
             </div>
           </div>

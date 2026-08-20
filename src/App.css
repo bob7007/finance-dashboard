@@ -502,6 +502,114 @@ button {
   line-height: 1.5;
 }
 
+.wallet-holdings-section {
+  margin-top: 22px;
+
+  border-top: 1px solid #1d2633;
+}
+
+.wallet-holdings-header {
+  display: flex;
+  justify-content: space-between;
+
+  padding: 14px 0 8px;
+
+  color: #8d99aa;
+
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.wallet-holdings-header span:last-child {
+  color: #667487;
+  font-weight: 500;
+}
+
+.wallet-holdings-list {
+  display: grid;
+  gap: 4px;
+}
+
+.wallet-holding-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  padding: 9px 0;
+
+  border-bottom: 1px solid #181f29;
+}
+
+.wallet-holding-row > div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.wallet-holding-row strong {
+  min-width: 42px;
+
+  color: #e6ebf2;
+
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+  font-size: 12px;
+}
+
+.wallet-holding-row span {
+  color: #8d99aa;
+
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+  font-size: 11px;
+}
+
+.wallet-remove-holding-button {
+  padding: 4px 7px;
+
+  border: 1px solid #2b3544;
+  border-radius: 5px;
+
+  background: transparent;
+  color: #aeb8c7;
+
+  cursor: pointer;
+
+  font-size: 11px;
+}
+
+.wallet-remove-holding-button:hover {
+  border-color: #f16f7b;
+  color: #f16f7b;
+}
+
+.wallet-delete-action {
+  padding: 8px 13px;
+
+  border: 1px solid #63313a;
+  border-radius: 6px;
+
+  background: transparent;
+  color: #f16f7b;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wallet-delete-action:hover {
+  border-color: #f16f7b;
+  background: rgba(241, 111, 123, 0.08);
+}
+
 .wallet-modal-actions {
   display: flex;
   justify-content: flex-end;
