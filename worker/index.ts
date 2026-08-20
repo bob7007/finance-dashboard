@@ -637,6 +637,8 @@ export default {
         return Response.json({
           totalValue,
 
+          plaidEnvironment: env.PLAID_ENV,
+
           accounts: portfolioAccounts,
 
           holdings: portfolioHoldings,

@@ -39,6 +39,7 @@ interface PortfolioHolding {
 
 interface PortfolioResponse {
   totalValue: number;
+  plaidEnvironment: string;
   accounts: PortfolioAccount[];
   holdings: PortfolioHolding[];
 }
@@ -313,7 +314,7 @@ function App() {
           </div>
 
           <div className="environment-badge">
-            PLAID SANDBOX
+            PLAID {portfolio?.plaidEnvironment?.toUpperCase() ?? "..."}
           </div>
         </div>
 

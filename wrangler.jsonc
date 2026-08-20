@@ -5,6 +5,13 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "finance-dashboard",
+	"workers_dev": false,
+	"routes": [
+		{
+			"pattern": "terminal.7007solutions.com",
+			"custom_domain": true
+		}
+	],
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-08-15",
 	"assets": {
@@ -20,7 +27,10 @@
 			"database_name": "finance-dashboard-db",
 			"database_id": "8aa9d7d7-ea8c-4910-b9ac-fa589951aa1f"
 		}
-	]
+	],
+	"vars": {
+		"PLAID_ENV": "production"
+	}
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
