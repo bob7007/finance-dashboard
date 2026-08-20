@@ -44,6 +44,74 @@ interface PortfolioResponse {
   holdings: PortfolioHolding[];
 }
 
+interface CryptoHolding {
+  coinId: string;
+  symbol: string;
+  name: string;
+  quantity: number;
+  price: number;
+  value: number;
+  costBasis: number;
+  gain: number;
+  gainPercent: number;
+  change24h: number;
+}
+
+// Temporary development test data; replace with the crypto portfolio API later.
+const developmentCryptoHoldings: CryptoHolding[] =
+  import.meta.env.DEV
+    ? [
+        {
+          coinId: "btc-local",
+          symbol: "BTC",
+          name: "Bitcoin",
+          quantity: 0.18,
+          price: 64250,
+          value: 11565,
+          costBasis: 9800,
+          gain: 1765,
+          gainPercent: 18.01,
+          change24h: 2.4,
+        },
+        {
+          coinId: "eth-local",
+          symbol: "ETH",
+          name: "Ethereum",
+          quantity: 2.4,
+          price: 3450,
+          value: 8280,
+          costBasis: 7600,
+          gain: 680,
+          gainPercent: 8.95,
+          change24h: 1.7,
+        },
+        {
+          coinId: "sol-local",
+          symbol: "SOL",
+          name: "Solana",
+          quantity: 18,
+          price: 172,
+          value: 3096,
+          costBasis: 3420,
+          gain: -324,
+          gainPercent: -9.47,
+          change24h: -0.8,
+        },
+        {
+          coinId: "link-local",
+          symbol: "LINK",
+          name: "Chainlink",
+          quantity: 42,
+          price: 14.8,
+          value: 621.6,
+          costBasis: 560,
+          gain: 61.6,
+          gainPercent: 11,
+          change24h: 3.1,
+        },
+      ]
+    : [];
+
 function formatCurrency(
   value: number | null,
   currency = "USD"
@@ -92,6 +160,9 @@ function App() {
 
   const [selectedAccountKey, setSelectedAccountKey] =
     useState<string | null>(null);
+
+  const [portfolioCategory, setPortfolioCategory] =
+    useState<"brokerage" | "crypto">("brokerage");
 
   // --------------------------------------------------
   // Load normalized portfolio
@@ -279,6 +350,25 @@ function App() {
             selectedAccountKey
         ) ?? [];
 
+  const cryptoTotalValue =
+    developmentCryptoHoldings.reduce(
+      (total, holding) => total + holding.value,
+      0
+    );
+
+  const cryptoChange24h =
+    cryptoTotalValue === 0
+      ? 0
+      : developmentCryptoHoldings.reduce(
+          (total, holding) =>
+            total +
+            holding.value *
+              (holding.change24h / 100),
+          0
+        ) /
+          cryptoTotalValue *
+        100;
+
   const latestPriceDate =
     useMemo(() => {
       if (!portfolio) {
@@ -380,7 +470,8 @@ function App() {
             </p>
           </div>
 
-          {latestPriceDate && (
+          {portfolioCategory === "brokerage" &&
+            latestPriceDate && (
             <div className="price-date">
               Institution prices as of{" "}
               <strong>
@@ -388,6 +479,34 @@ function App() {
               </strong>
             </div>
           )}
+        </div>
+
+        <div className="portfolio-category-nav">
+          <button
+            className={
+              portfolioCategory === "brokerage"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              setPortfolioCategory("brokerage")
+            }
+          >
+            Brokerage
+          </button>
+
+          <button
+            className={
+              portfolioCategory === "crypto"
+                ? "active"
+                : ""
+            }
+            onClick={() =>
+              setPortfolioCategory("crypto")
+            }
+          >
+            Crypto
+          </button>
         </div>
 
         {loading && (
@@ -409,46 +528,85 @@ function App() {
               {/* ------------------------------------
                   Summary cards
               ------------------------------------- */}
-              <section className="summary-grid">
-                <div className="summary-card primary-card">
-                  <span className="summary-label">
-                    Total Investment
-                    Value
-                  </span>
+              {portfolioCategory === "brokerage" ? (
+                <section className="summary-grid">
+                  <div className="summary-card primary-card">
+                    <span className="summary-label">
+                      Total Investment
+                      Value
+                    </span>
 
-                  <strong className="summary-value">
-                    {formatCurrency(
-                      portfolio.totalValue
-                    )}
-                  </strong>
-                </div>
+                    <strong className="summary-value">
+                      {formatCurrency(
+                        portfolio.totalValue
+                      )}
+                    </strong>
+                  </div>
 
-                <div className="summary-card">
-                  <span className="summary-label">
-                    Investment Accounts
-                  </span>
+                  <div className="summary-card">
+                    <span className="summary-label">
+                      Investment Accounts
+                    </span>
 
-                  <strong className="summary-value small">
-                    {
-                      investmentAccountCount
-                    }
-                  </strong>
-                </div>
+                    <strong className="summary-value small">
+                      {
+                        investmentAccountCount
+                      }
+                    </strong>
+                  </div>
 
-                <div className="summary-card">
-                  <span className="summary-label">
-                    Positions
-                  </span>
+                  <div className="summary-card">
+                    <span className="summary-label">
+                      Positions
+                    </span>
 
-                  <strong className="summary-value small">
-                    {positionCount}
-                  </strong>
-                </div>
-              </section>
+                    <strong className="summary-value small">
+                      {positionCount}
+                    </strong>
+                  </div>
+                </section>
+              ) : (
+                <section className="summary-grid">
+                  <div className="summary-card primary-card">
+                    <span className="summary-label">
+                      Total Crypto Value
+                    </span>
+
+                    <strong className="summary-value">
+                      {formatCurrency(
+                        cryptoTotalValue
+                      )}
+                    </strong>
+                  </div>
+
+                  <div className="summary-card">
+                    <span className="summary-label">
+                      Assets
+                    </span>
+
+                    <strong className="summary-value small">
+                      {developmentCryptoHoldings.length}
+                    </strong>
+                  </div>
+
+                  <div className="summary-card">
+                    <span className="summary-label">
+                      24H Change
+                    </span>
+
+                    <strong className="summary-value small">
+                      {formatPercent(
+                        cryptoChange24h
+                      )}
+                    </strong>
+                  </div>
+                </section>
+              )}
 
               {/* ------------------------------------
                   Accounts
               ------------------------------------- */}
+              {portfolioCategory === "brokerage" && (
               <section className="section">
                 <div className="section-header">
                   <div>
@@ -521,6 +679,7 @@ function App() {
                   )}
                 </div>
               </section>
+              )}
 
               {/* ------------------------------------
                   Holdings table
@@ -529,7 +688,9 @@ function App() {
                 <div className="section-header">
                   <div>
                     <p className="section-eyebrow">
-                      POSITIONS
+                      {portfolioCategory === "crypto"
+                        ? "CRYPTO ASSETS"
+                        : "POSITIONS"}
                     </p>
 
                     <h2>Holdings</h2>
@@ -537,6 +698,7 @@ function App() {
                 </div>
 
                 <div className="table-container">
+                  {portfolioCategory === "brokerage" ? (
                   <table className="holdings-table">
                     <thead>
                       <tr>
@@ -668,6 +830,109 @@ function App() {
                       )}
                     </tbody>
                   </table>
+                  ) : (
+                  <table className="holdings-table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>Asset</th>
+                        <th className="numeric">Quantity</th>
+                        <th className="numeric">Price</th>
+                        <th className="numeric">Value</th>
+                        <th className="numeric">Cost Basis</th>
+                        <th className="numeric">Gain / Loss</th>
+                        <th className="numeric">Return</th>
+                        <th className="numeric">24H</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {developmentCryptoHoldings.map(
+                        (holding) => (
+                          <tr key={holding.coinId}>
+                            <td>
+                              <span className="ticker">
+                                {holding.symbol}
+                              </span>
+                            </td>
+
+                            <td>
+                              <div className="security-name">
+                                {holding.name}
+                              </div>
+                              <div className="security-type">
+                                {holding.coinId}
+                              </div>
+                            </td>
+
+                            <td className="numeric">
+                              {formatQuantity(
+                                holding.quantity
+                              )}
+                            </td>
+
+                            <td className="numeric">
+                              {formatCurrency(
+                                holding.price
+                              )}
+                            </td>
+
+                            <td className="numeric value-cell">
+                              {formatCurrency(
+                                holding.value
+                              )}
+                            </td>
+
+                            <td className="numeric">
+                              {formatCurrency(
+                                holding.costBasis
+                              )}
+                            </td>
+
+                            <td
+                              className={`numeric ${
+                                holding.gain >= 0
+                                  ? "positive"
+                                  : "negative"
+                              }`}
+                            >
+                              {holding.gain >= 0
+                                ? "+"
+                                : ""}
+                              {formatCurrency(
+                                holding.gain
+                              )}
+                            </td>
+
+                            <td
+                              className={`numeric ${
+                                holding.gainPercent >= 0
+                                  ? "positive"
+                                  : "negative"
+                              }`}
+                            >
+                              {formatPercent(
+                                holding.gainPercent
+                              )}
+                            </td>
+
+                            <td
+                              className={`numeric ${
+                                holding.change24h >= 0
+                                  ? "positive"
+                                  : "negative"
+                              }`}
+                            >
+                              {formatPercent(
+                                holding.change24h
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                  )}
                 </div>
               </section>
             </>

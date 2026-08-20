@@ -232,6 +232,42 @@ button {
   font-size: 14px;
 }
 
+.portfolio-category-nav {
+  display: flex;
+  gap: 24px;
+
+  margin-bottom: 28px;
+
+  border-bottom: 1px solid #1b212b;
+}
+
+.portfolio-category-nav button {
+  height: 38px;
+
+  padding: 0;
+
+  border: 0;
+  border-bottom: 2px solid transparent;
+
+  background: transparent;
+
+  color: #7f8b9d;
+
+  cursor: pointer;
+
+  font-size: 13px;
+}
+
+.portfolio-category-nav button:hover {
+  color: #dce3ec;
+}
+
+.portfolio-category-nav button.active {
+  color: #f4f7fb;
+
+  border-bottom-color: #6997ff;
+}
+
 .price-date {
   font-family:
     "SFMono-Regular",
