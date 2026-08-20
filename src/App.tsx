@@ -213,6 +213,25 @@ function App() {
       developmentCryptoWallets
     );
 
+  const [walletOrder, setWalletOrder] =
+    useState<string[]>(() =>
+      developmentCryptoWallets.map(
+        (wallet) => wallet.id
+      )
+    );
+
+  const [openWalletMenuId, setOpenWalletMenuId] =
+    useState<string | null>(null);
+
+  const [editingWalletId, setEditingWalletId] =
+    useState<string | null>(null);
+
+  const [deleteWalletId, setDeleteWalletId] =
+    useState<string | null>(null);
+
+  const [deleteValidationMessage, setDeleteValidationMessage] =
+    useState("");
+
   const [isAddWalletOpen, setIsAddWalletOpen] =
     useState(false);
 
@@ -434,6 +453,24 @@ function App() {
             selectedCryptoWalletId
         );
 
+  const orderedWallets = walletOrder
+    .map((walletId) =>
+      cryptoWallets.find(
+        (wallet) => wallet.id === walletId
+      )
+    )
+    .filter(
+      (wallet): wallet is CryptoWallet =>
+        Boolean(wallet)
+    );
+
+    const deleteWalletHoldingCount = deleteWalletId
+      ? developmentCryptoHoldings.filter(
+          (holding) =>
+            holding.walletId === deleteWalletId
+        ).length
+      : 0;
+
   const getWalletValue = (walletId: string) =>
     developmentCryptoHoldings
       .filter(
@@ -448,6 +485,23 @@ function App() {
     setWalletName("");
     setWalletType("hardware_wallet");
     setWalletValidationMessage("");
+    setEditingWalletId(null);
+  };
+
+  const openAddWalletModal = () => {
+    resetWalletForm();
+    setIsAddWalletOpen(true);
+  };
+
+  const openEditWalletModal = (
+    wallet: CryptoWallet
+  ) => {
+    setEditingWalletId(wallet.id);
+    setWalletName(wallet.name);
+    setWalletType(wallet.type);
+    setWalletValidationMessage("");
+    setOpenWalletMenuId(null);
+    setIsAddWalletOpen(true);
   };
 
   const handleAddWallet = (
@@ -466,6 +520,7 @@ function App() {
 
     const isDuplicate = cryptoWallets.some(
       (wallet) =>
+        wallet.id !== editingWalletId &&
         wallet.name.toLowerCase() ===
         trimmedName.toLowerCase()
     );
@@ -477,16 +532,81 @@ function App() {
       return;
     }
 
-    setCryptoWallets((wallets) => [
-      ...wallets,
-      {
-        id: crypto.randomUUID(),
-        name: trimmedName,
-        type: walletType,
-      },
-    ]);
+    if (editingWalletId) {
+      setCryptoWallets((wallets) =>
+        wallets.map((wallet) =>
+          wallet.id === editingWalletId
+            ? {
+                ...wallet,
+                name: trimmedName,
+                type: walletType,
+              }
+            : wallet
+        )
+      );
+    } else {
+      const walletId = crypto.randomUUID();
+
+      setCryptoWallets((wallets) => [
+        ...wallets,
+        {
+          id: walletId,
+          name: trimmedName,
+          type: walletType,
+        },
+      ]);
+      setWalletOrder((order) => [
+        ...order,
+        walletId,
+      ]);
+    }
+
     resetWalletForm();
     setIsAddWalletOpen(false);
+  };
+
+  const openDeleteWalletModal = (
+    walletId: string
+  ) => {
+    setOpenWalletMenuId(null);
+    setDeleteValidationMessage("");
+    setDeleteWalletId(walletId);
+  };
+
+  const confirmDeleteWallet = () => {
+    if (!deleteWalletId) {
+      return;
+    }
+
+    const holdingsCount =
+      developmentCryptoHoldings.filter(
+        (holding) =>
+          holding.walletId === deleteWalletId
+      ).length;
+
+    if (holdingsCount > 0) {
+      setDeleteValidationMessage(
+        `This wallet contains ${holdingsCount} holdings. Remove or move its holdings before deleting the wallet.`
+      );
+      return;
+    }
+
+    setCryptoWallets((wallets) =>
+      wallets.filter(
+        (wallet) => wallet.id !== deleteWalletId
+      )
+    );
+    setWalletOrder((order) =>
+      order.filter((walletId) =>
+        walletId !== deleteWalletId
+      )
+    );
+
+    if (selectedCryptoWalletId === deleteWalletId) {
+      setSelectedCryptoWalletId(null);
+    }
+
+    setDeleteWalletId(null);
   };
 
   const getWalletTypeLabel = (
@@ -823,17 +943,14 @@ function App() {
 
                     <button
                       className="add-wallet-button"
-                      onClick={() => {
-                        setWalletValidationMessage("");
-                        setIsAddWalletOpen(true);
-                      }}
+                      onClick={openAddWalletModal}
                     >
                       + Add Wallet
                     </button>
                   </div>
 
                   <div className="account-grid">
-                    {cryptoWallets.map(
+                    {orderedWallets.map(
                       (wallet) => (
                         <div
                           className={`account-card ${
@@ -852,6 +969,71 @@ function App() {
                             )
                           }
                         >
+                          <div className="wallet-card-controls">
+                            <button
+                              className="wallet-drag-handle"
+                              type="button"
+                              aria-label={`Reorder ${wallet.name}`}
+                              onClick={(event) =>
+                                event.stopPropagation()
+                              }
+                            >
+                              ⠿
+                            </button>
+
+                            <div className="wallet-menu-wrapper">
+                              <button
+                                className="wallet-menu-button"
+                                type="button"
+                                aria-label={`Actions for ${wallet.name}`}
+                                aria-expanded={
+                                  openWalletMenuId ===
+                                  wallet.id
+                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOpenWalletMenuId(
+                                    openWalletMenuId ===
+                                      wallet.id
+                                      ? null
+                                      : wallet.id
+                                  );
+                                }}
+                              >
+                                ⋮
+                              </button>
+
+                              {openWalletMenuId ===
+                                wallet.id && (
+                                <div className="wallet-menu">
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openEditWalletModal(
+                                        wallet
+                                      );
+                                    }}
+                                  >
+                                    Edit Wallet
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      openDeleteWalletModal(
+                                        wallet.id
+                                      );
+                                    }}
+                                  >
+                                    Delete Wallet
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
                           <div className="account-card-top">
                             <div className="account-name">
                               {wallet.name}
@@ -1162,7 +1344,9 @@ function App() {
                 </p>
 
                 <h2 id="add-wallet-title">
-                  Add Wallet
+                  {editingWalletId
+                    ? "Edit Wallet"
+                    : "Add Wallet"}
                 </h2>
               </div>
 
@@ -1238,10 +1422,87 @@ function App() {
                   className="wallet-submit-button"
                   type="submit"
                 >
-                  Add Wallet
+                  {editingWalletId
+                    ? "Save Changes"
+                    : "Add Wallet"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteWalletId && (
+        <div className="wallet-modal-backdrop">
+          <div
+            className="wallet-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-wallet-title"
+          >
+            <div className="wallet-modal-header">
+              <div>
+                <p className="section-eyebrow">
+                  CRYPTO
+                </p>
+
+                <h2 id="delete-wallet-title">
+                  Delete Wallet
+                </h2>
+              </div>
+
+              <button
+                className="wallet-modal-close"
+                type="button"
+                aria-label="Close Delete Wallet"
+                onClick={() =>
+                  setDeleteWalletId(null)
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="wallet-delete-message">
+              Delete "
+              {cryptoWallets.find(
+                (wallet) =>
+                  wallet.id === deleteWalletId
+              )?.name ?? "this wallet"}
+              "?
+            </p>
+
+            {deleteValidationMessage ||
+            deleteWalletHoldingCount > 0 ? (
+              <p className="wallet-validation-message">
+                {deleteValidationMessage ||
+                  `This wallet contains ${deleteWalletHoldingCount} holdings. Remove or move its holdings before deleting the wallet.`}
+              </p>
+            ) : (
+              <p className="wallet-delete-message">
+                This wallet has no holdings.
+              </p>
+            )}
+
+            <div className="wallet-modal-actions">
+              <button
+                className="wallet-cancel-button"
+                type="button"
+                onClick={() =>
+                  setDeleteWalletId(null)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="wallet-submit-button"
+                type="button"
+                onClick={confirmDeleteWallet}
+              >
+                Delete Wallet
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -493,6 +493,15 @@ button {
   font-size: 12px;
 }
 
+.wallet-delete-message {
+  margin: 12px 0 0;
+
+  color: #aeb8c7;
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .wallet-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -554,6 +563,8 @@ button {
 }
 
 .account-card {
+  position: relative;
+
   padding: 18px 20px;
 
   border: 1px solid #1d2633;
@@ -561,6 +572,86 @@ button {
 
   background: #0e131b;
   cursor: pointer;
+}
+
+.wallet-card-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  height: 22px;
+  margin: -10px -10px 7px;
+}
+
+.wallet-drag-handle,
+.wallet-menu-button {
+  width: 26px;
+  height: 24px;
+
+  padding: 0;
+
+  border: 0;
+  background: transparent;
+  color: #667487;
+
+  cursor: pointer;
+}
+
+.wallet-drag-handle {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.wallet-menu-button {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.wallet-drag-handle:hover,
+.wallet-menu-button:hover {
+  color: #dce3ec;
+}
+
+.wallet-menu-wrapper {
+  position: relative;
+}
+
+.wallet-menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  z-index: 2;
+
+  min-width: 132px;
+
+  padding: 4px;
+
+  border: 1px solid #2b3544;
+  border-radius: 6px;
+
+  background: #111722;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.wallet-menu button {
+  display: block;
+  width: 100%;
+
+  padding: 8px 9px;
+
+  border: 0;
+  background: transparent;
+  color: #c5cedb;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  text-align: left;
+}
+
+.wallet-menu button:hover {
+  background: #182131;
+  color: #f1f4f9;
 }
 
 .account-card:hover {
