@@ -231,7 +231,8 @@ export default {
     const redirectUri =
       env.PLAID_ENV === "production"
         ? "https://terminal.7007solutions.com/oauth-return"
-        : null;
+        : undefined;
+
     // --------------------------------------------------
     // Create Plaid Link token
     // --------------------------------------------------
