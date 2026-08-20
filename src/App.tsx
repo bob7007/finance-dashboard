@@ -46,6 +46,7 @@ interface PortfolioResponse {
 
 interface CryptoHolding {
   coinId: string;
+  walletId: string;
   symbol: string;
   name: string;
   quantity: number;
@@ -57,12 +58,49 @@ interface CryptoHolding {
   change24h: number;
 }
 
+interface CryptoWallet {
+  id: string;
+  name: string;
+  type:
+    | "exchange"
+    | "hardware_wallet"
+    | "software_wallet"
+    | "other";
+}
+
+const developmentCryptoWallets: CryptoWallet[] =
+  import.meta.env.DEV
+    ? [
+        {
+          id: "trezor-safe-3",
+          name: "Trezor Safe 3",
+          type: "hardware_wallet",
+        },
+        {
+          id: "kraken",
+          name: "Kraken",
+          type: "exchange",
+        },
+        {
+          id: "phantom",
+          name: "Phantom",
+          type: "software_wallet",
+        },
+        {
+          id: "coinbase",
+          name: "Coinbase",
+          type: "exchange",
+        },
+      ]
+    : [];
+
 // Temporary development test data; replace with the crypto portfolio API later.
 const developmentCryptoHoldings: CryptoHolding[] =
   import.meta.env.DEV
     ? [
         {
           coinId: "btc-local",
+          walletId: "trezor-safe-3",
           symbol: "BTC",
           name: "Bitcoin",
           quantity: 0.18,
@@ -75,6 +113,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           coinId: "eth-local",
+          walletId: "kraken",
           symbol: "ETH",
           name: "Ethereum",
           quantity: 2.4,
@@ -87,6 +126,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           coinId: "sol-local",
+          walletId: "phantom",
           symbol: "SOL",
           name: "Solana",
           quantity: 18,
@@ -99,6 +139,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           coinId: "link-local",
+          walletId: "coinbase",
           symbol: "LINK",
           name: "Chainlink",
           quantity: 42,
@@ -163,6 +204,9 @@ function App() {
 
   const [portfolioCategory, setPortfolioCategory] =
     useState<"brokerage" | "crypto">("brokerage");
+
+  const [selectedCryptoWalletId, setSelectedCryptoWalletId] =
+    useState<string | null>(null);
 
   // --------------------------------------------------
   // Load normalized portfolio
@@ -368,6 +412,36 @@ function App() {
         ) /
           cryptoTotalValue *
         100;
+
+  const filteredCryptoHoldings =
+    selectedCryptoWalletId === null
+      ? developmentCryptoHoldings
+      : developmentCryptoHoldings.filter(
+          (holding) =>
+            holding.walletId ===
+            selectedCryptoWalletId
+        );
+
+  const getWalletValue = (walletId: string) =>
+    developmentCryptoHoldings
+      .filter(
+        (holding) => holding.walletId === walletId
+      )
+      .reduce(
+        (total, holding) => total + holding.value,
+        0
+      );
+
+  const getWalletTypeLabel = (
+    type: CryptoWallet["type"]
+  ) =>
+    type === "hardware_wallet"
+      ? "Hardware Wallet"
+      : type === "software_wallet"
+        ? "Software Wallet"
+        : type === "exchange"
+          ? "Exchange"
+          : "Other";
 
   const latestPriceDate =
     useMemo(() => {
@@ -581,11 +655,11 @@ function App() {
 
                   <div className="summary-card">
                     <span className="summary-label">
-                      Assets
+                      Wallets
                     </span>
 
                     <strong className="summary-value small">
-                      {developmentCryptoHoldings.length}
+                      {developmentCryptoWallets.length}
                     </strong>
                   </div>
 
@@ -679,6 +753,64 @@ function App() {
                   )}
                 </div>
               </section>
+              )}
+
+              {portfolioCategory === "crypto" && (
+                <section className="section">
+                  <div className="section-header">
+                    <div>
+                      <p className="section-eyebrow">
+                        WALLETS
+                      </p>
+
+                      <h2>Wallets</h2>
+                    </div>
+                  </div>
+
+                  <div className="account-grid">
+                    {developmentCryptoWallets.map(
+                      (wallet) => (
+                        <div
+                          className={`account-card ${
+                            selectedCryptoWalletId ===
+                            wallet.id
+                              ? "selected"
+                              : ""
+                          }`}
+                          key={wallet.id}
+                          onClick={() =>
+                            setSelectedCryptoWalletId(
+                              selectedCryptoWalletId ===
+                                wallet.id
+                                ? null
+                                : wallet.id
+                            )
+                          }
+                        >
+                          <div className="account-card-top">
+                            <div className="account-name">
+                              {wallet.name}
+                            </div>
+
+                            <span className="account-type">
+                              {getWalletTypeLabel(
+                                wallet.type
+                              )}
+                            </span>
+                          </div>
+
+                          <div className="account-balance">
+                            {formatCurrency(
+                              getWalletValue(
+                                wallet.id
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )
+                    )}
+                  </div>
+                </section>
               )}
 
               {/* ------------------------------------
@@ -836,6 +968,7 @@ function App() {
                       <tr>
                         <th>Symbol</th>
                         <th>Asset</th>
+                        <th>Wallet</th>
                         <th className="numeric">Quantity</th>
                         <th className="numeric">Price</th>
                         <th className="numeric">Value</th>
@@ -847,7 +980,7 @@ function App() {
                     </thead>
 
                     <tbody>
-                      {developmentCryptoHoldings.map(
+                      {filteredCryptoHoldings.map(
                         (holding) => (
                           <tr key={holding.coinId}>
                             <td>
@@ -863,6 +996,16 @@ function App() {
                               <div className="security-type">
                                 {holding.coinId}
                               </div>
+                            </td>
+
+                            <td>
+                              <span className="account-pill">
+                                {developmentCryptoWallets.find(
+                                  (wallet) =>
+                                    wallet.id ===
+                                    holding.walletId
+                                )?.name ?? "Wallet"}
+                              </span>
                             </td>
 
                             <td className="numeric">

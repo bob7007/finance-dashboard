@@ -136,3 +136,34 @@ For UI work:
 - avoid broad refactors while adding small features
 
 If a request is ambiguous, inspect the code first and ask before making a large architectural change.
+
+## Command Execution Safety
+
+Do not run or request approval to run build, deploy, install, server, or infrastructure commands.
+
+In particular, NEVER execute or request approval for:
+
+- `npm run build`
+- `npm build`
+- `npm run dev`
+- `npm run deploy`
+- `npm install`
+- `npx wrangler ...`
+- Cloudflare deployment or D1 commands
+- Git commits, pushes, resets, rebases, or other destructive Git operations
+
+If one of these commands would normally be useful after a change, only tell the user which command they may run manually.
+
+Do not present the command through an execution/approval prompt.
+
+For example, instead of attempting to execute:
+
+`npm run build`
+
+say:
+
+"Changes are complete. You may run `npm run build` manually if you want to verify the build."
+
+The user is responsible for executing build, deploy, install, infrastructure, and Git write commands.
+
+Codex may inspect files and make explicitly requested source-code edits, but command execution must remain user-controlled unless the user explicitly instructs Codex to run a specific command in that same request.
