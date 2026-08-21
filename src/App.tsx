@@ -373,6 +373,9 @@ function App() {
   const [selectedImportFileName, setSelectedImportFileName] =
     useState("");
 
+  const [importInputKey, setImportInputKey] =
+    useState(0);
+
   // --------------------------------------------------
   // Load normalized portfolio
   // --------------------------------------------------
@@ -642,6 +645,7 @@ function App() {
     setImportedHoldings([]);
     setHoldingImportError("");
     setSelectedImportFileName("");
+    setImportInputKey((key) => key + 1);
   };
 
   const openAddWalletModal = () => {
@@ -659,6 +663,7 @@ function App() {
     setImportedHoldings([]);
     setHoldingImportError("");
     setSelectedImportFileName("");
+    setImportInputKey((key) => key + 1);
     setOpenWalletMenuId(null);
     setIsAddWalletOpen(true);
   };
@@ -801,7 +806,28 @@ function App() {
               }
             : wallet
         )
-      );
+        );
+
+        const newHoldings: CryptoHolding[] =
+          importedHoldings.map((holding) => ({
+            id: crypto.randomUUID(),
+            coinId: holding.symbol.toLowerCase(),
+            walletId: editingWalletId,
+            symbol: holding.symbol,
+            name: holding.name ?? holding.symbol,
+            quantity: holding.quantity,
+            price: 0,
+            value: 0,
+            costBasis: holding.costBasis ?? 0,
+            gain: 0,
+            gainPercent: 0,
+            change24h: 0,
+          }));
+
+        setCryptoHoldings((current) => [
+          ...current,
+          ...newHoldings,
+        ]);
     } else {
       const walletId = crypto.randomUUID();
       const newHoldings: CryptoHolding[] =
@@ -1752,7 +1778,8 @@ function App() {
                 </select>
               </label>
 
-              {!editingWallet && (
+              {(!editingWallet ||
+                editingWalletHoldings.length === 0) && (
                 <section className="wallet-import-section">
                   <div className="wallet-import-header">
                     <span>Import Holdings</span>
@@ -1762,6 +1789,7 @@ function App() {
                   <label className="wallet-file-input">
                     <span>Choose CSV</span>
                     <input
+                      key={importInputKey}
                       type="file"
                       accept=".csv,text/csv"
                       onChange={handleHoldingCsvChange}
