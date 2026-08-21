@@ -111,6 +111,7 @@ function parseCryptoHoldings(value: unknown):
 
   const holdings: CryptoHoldingInput[] = [];
   const holdingIds = new Set<string>();
+  const coinGeckoIds = new Set<string>();
 
   for (let index = 0; index < value.length; index += 1) {
     const rowNumber = index + 1;
@@ -129,7 +130,7 @@ function parseCryptoHoldings(value: unknown):
       typeof holding.name === "string" ? holding.name.trim() : "";
     const coinGeckoId =
       typeof holding.coinGeckoId === "string"
-        ? holding.coinGeckoId.trim()
+        ? holding.coinGeckoId.trim().toLowerCase()
         : "";
     const quantity = holding.quantity;
     const costBasis = holding.costBasis;
@@ -150,6 +151,14 @@ function parseCryptoHoldings(value: unknown):
       return { error: `Holding ${rowNumber} must have a CoinGecko ID` };
     }
 
+    if (coinGeckoIds.has(coinGeckoId)) {
+      return {
+        error:
+          `Holding ${rowNumber} duplicates CoinGecko ID "${coinGeckoId}". ` +
+          "Each asset may appear only once per wallet.",
+      };
+    }
+
     if (
       typeof quantity !== "number" ||
       !Number.isFinite(quantity) ||
@@ -167,6 +176,7 @@ function parseCryptoHoldings(value: unknown):
     }
 
     holdingIds.add(id);
+    coinGeckoIds.add(coinGeckoId);
     holdings.push({
       id,
       symbol,
@@ -188,7 +198,7 @@ function normalizeCryptoHolding(
     walletId: holding.wallet_id,
     symbol: holding.symbol,
     name: holding.name,
-    coinGeckoId: holding.coingecko_id,
+    coinGeckoId: holding.coingecko_id.trim().toLowerCase(),
     quantity: holding.quantity,
     costBasis: holding.cost_basis,
   };
@@ -242,6 +252,15 @@ function isConstraintError(error: unknown) {
     error instanceof Error &&
     (error.message.includes("UNIQUE constraint failed") ||
       error.message.includes("FOREIGN KEY constraint failed"))
+  );
+}
+
+function isWalletAssetConstraintError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message.includes("UNIQUE constraint failed") &&
+    error.message.includes("crypto_holdings.wallet_id") &&
+    error.message.includes("crypto_holdings.coingecko_id")
   );
 }
 
@@ -707,6 +726,13 @@ export default {
           { status: 201 }
         );
       } catch (error) {
+        if (isWalletAssetConstraintError(error)) {
+          return Response.json(
+            { error: "This wallet already contains that asset." },
+            { status: 409 }
+          );
+        }
+
         if (isConstraintError(error)) {
           return Response.json(
             { error: "Wallet or holding already exists" },
@@ -804,6 +830,13 @@ export default {
           { status: 201 }
         );
       } catch (error) {
+        if (isWalletAssetConstraintError(error)) {
+          return Response.json(
+            { error: "This wallet already contains that asset." },
+            { status: 409 }
+          );
+        }
+
         if (isConstraintError(error)) {
           return Response.json(
             { error: "One or more holdings already exist" },

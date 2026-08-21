@@ -734,6 +734,7 @@ function App() {
       }
 
       const parsedHoldings: ImportedCryptoHolding[] = [];
+      const seenCoinGeckoIds = new Set<string>();
 
       for (let index = 1; index < lines.length; index += 1) {
         const rowNumber = index + 1;
@@ -742,7 +743,7 @@ function App() {
           .map((value) => value.trim());
         const symbol = values[symbolIndex]?.toUpperCase() ?? "";
         const coinGeckoId =
-          values[coinGeckoIdIndex]?.trim() ?? "";
+          values[coinGeckoIdIndex]?.trim().toLowerCase() ?? "";
         const quantityText = values[quantityIndex] ?? "";
         const quantity = Number(quantityText);
         const name = values[nameIndex]?.trim();
@@ -767,6 +768,13 @@ function App() {
           );
         }
 
+        if (seenCoinGeckoIds.has(coinGeckoId)) {
+          throw new Error(
+            `Row ${rowNumber} contains duplicate CoinGecko ID "${coinGeckoId}". ` +
+              "Each asset may appear only once per wallet."
+          );
+        }
+
         if (!Number.isFinite(quantity) || quantity <= 0) {
           throw new Error(
             `Row ${rowNumber} has an invalid quantity.`
@@ -783,6 +791,7 @@ function App() {
           );
         }
 
+        seenCoinGeckoIds.add(coinGeckoId);
         parsedHoldings.push({
           symbol,
           name: name || undefined,
