@@ -79,6 +79,21 @@ interface CryptoPriceResponse {
   >;
 }
 
+interface StoredCryptoHolding {
+  id: string;
+  walletId: string;
+  symbol: string;
+  name: string;
+  coinGeckoId: string;
+  quantity: number;
+  costBasis: number;
+}
+
+interface CryptoPortfolioResponse {
+  wallets: CryptoWallet[];
+  holdings: StoredCryptoHolding[];
+}
+
 interface CryptoWallet {
   id: string;
   name: string;
@@ -88,193 +103,6 @@ interface CryptoWallet {
     | "software_wallet"
     | "other";
 }
-
-const developmentCryptoWallets: CryptoWallet[] =
-  import.meta.env.DEV
-    ? [
-        {
-          id: "trezor-safe-3",
-          name: "Trezor Safe 3",
-          type: "hardware_wallet",
-        },
-        {
-          id: "kraken",
-          name: "Kraken",
-          type: "exchange",
-        },
-        {
-          id: "phantom",
-          name: "Phantom",
-          type: "software_wallet",
-        },
-        {
-          id: "coinbase",
-          name: "Coinbase",
-          type: "exchange",
-        },
-      ]
-    : [];
-
-// Temporary development test data; replace with the crypto portfolio API later.
-const developmentCryptoHoldings: CryptoHolding[] =
-  import.meta.env.DEV
-    ? [
-        {
-          id: "holding-kraken-btc",
-          coinGeckoId: "bitcoin",
-          walletId: "kraken",
-          symbol: "BTC",
-          name: "Bitcoin",
-          quantity: 0.152,
-          price: 64250,
-          value: 9762,
-          costBasis: 8600,
-          gain: 1162,
-          gainPercent: 13.51,
-          change24h: 2.4,
-        },
-        {
-          id: "holding-kraken-eth",
-          coinGeckoId: "ethereum",
-          walletId: "kraken",
-          symbol: "ETH",
-          name: "Ethereum",
-          quantity: 2.4,
-          price: 3450,
-          value: 8280,
-          costBasis: 7600,
-          gain: 680,
-          gainPercent: 8.95,
-          change24h: 1.7,
-        },
-        {
-          id: "holding-kraken-sol",
-          coinGeckoId: "solana",
-          walletId: "kraken",
-          symbol: "SOL",
-          name: "Solana",
-          quantity: 9.5,
-          price: 172,
-          value: 1634,
-          costBasis: 1480,
-          gain: 154,
-          gainPercent: 10.41,
-          change24h: -0.8,
-        },
-        {
-          id: "holding-coinbase-btc",
-          coinGeckoId: "bitcoin",
-          walletId: "coinbase",
-          symbol: "BTC",
-          name: "Bitcoin",
-          quantity: 0.08,
-          price: 64250,
-          value: 5140,
-          costBasis: 4700,
-          gain: 440,
-          gainPercent: 9.36,
-          change24h: 2.4,
-        },
-        {
-          id: "holding-coinbase-eth",
-          coinGeckoId: "ethereum",
-          walletId: "coinbase",
-          symbol: "ETH",
-          name: "Ethereum",
-          quantity: 1.1,
-          price: 3450,
-          value: 3795,
-          costBasis: 3600,
-          gain: 195,
-          gainPercent: 5.42,
-          change24h: 1.7,
-        },
-        {
-          id: "holding-coinbase-link",
-          coinGeckoId: "chainlink",
-          walletId: "coinbase",
-          symbol: "LINK",
-          name: "Chainlink",
-          quantity: 28,
-          price: 14.8,
-          value: 414.4,
-          costBasis: 390,
-          gain: 24.4,
-          gainPercent: 6.26,
-          change24h: 3.1,
-        },
-        {
-          id: "holding-trezor-btc",
-          coinGeckoId: "bitcoin",
-          walletId: "trezor-safe-3",
-          symbol: "BTC",
-          name: "Bitcoin",
-          quantity: 0.18,
-          price: 64250,
-          value: 11565,
-          costBasis: 9800,
-          gain: 1765,
-          gainPercent: 18.01,
-          change24h: 2.4,
-        },
-        {
-          id: "holding-trezor-sol",
-          coinGeckoId: "solana",
-          walletId: "trezor-safe-3",
-          symbol: "SOL",
-          name: "Solana",
-          quantity: 14,
-          price: 172,
-          value: 2408,
-          costBasis: 2200,
-          gain: 208,
-          gainPercent: 9.45,
-          change24h: -0.8,
-        },
-        {
-          id: "holding-trezor-link",
-          coinGeckoId: "chainlink",
-          walletId: "trezor-safe-3",
-          symbol: "LINK",
-          name: "Chainlink",
-          quantity: 35,
-          price: 14.8,
-          value: 518,
-          costBasis: 480,
-          gain: 38,
-          gainPercent: 7.92,
-          change24h: 3.1,
-        },
-        {
-          id: "holding-phantom-sol",
-          coinGeckoId: "solana",
-          walletId: "phantom",
-          symbol: "SOL",
-          name: "Solana",
-          quantity: 18,
-          price: 172,
-          value: 3096,
-          costBasis: 3420,
-          gain: -324,
-          gainPercent: -9.47,
-          change24h: -0.8,
-        },
-        {
-          id: "holding-phantom-eth",
-          coinGeckoId: "ethereum",
-          walletId: "phantom",
-          symbol: "ETH",
-          name: "Ethereum",
-          quantity: 0.75,
-          price: 3450,
-          value: 2587.5,
-          costBasis: 2400,
-          gain: 187.5,
-          gainPercent: 7.81,
-          change24h: 1.7,
-        },
-      ]
-    : [];
 
 function formatCurrency(
   value: number | null,
@@ -306,6 +134,36 @@ function formatPercent(value: number | null) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+function hydrateCryptoHolding(
+  holding: StoredCryptoHolding
+): CryptoHolding {
+  return {
+    ...holding,
+    price: 0,
+    value: 0,
+    gain: 0,
+    gainPercent: 0,
+    change24h: 0,
+  };
+}
+
+async function readApiResponse<T extends object>(
+  response: Response,
+  fallbackError: string
+): Promise<T> {
+  const data = (await response.json()) as T | { error?: string };
+
+  if (!response.ok) {
+    throw new Error(
+      "error" in data && data.error
+        ? data.error
+        : fallbackError
+    );
+  }
+
+  return data as T;
+}
+
 function App() {
   const [portfolio, setPortfolio] =
     useState<PortfolioResponse | null>(null);
@@ -332,24 +190,22 @@ function App() {
     useState<string | null>(null);
 
   const [cryptoWallets, setCryptoWallets] =
-    useState<CryptoWallet[]>(
-      developmentCryptoWallets
-    );
+    useState<CryptoWallet[]>([]);
 
   const [cryptoHoldings, setCryptoHoldings] =
-    useState<CryptoHolding[]>(
-      developmentCryptoHoldings
-    );
+    useState<CryptoHolding[]>([]);
+
+  const [cryptoOwnershipLoading, setCryptoOwnershipLoading] =
+    useState(true);
+
+  const [cryptoOwnershipError, setCryptoOwnershipError] =
+    useState("");
 
   const [cryptoPricingError, setCryptoPricingError] =
     useState("");
 
   const [walletOrder, setWalletOrder] =
-    useState<string[]>(() =>
-      developmentCryptoWallets.map(
-        (wallet) => wallet.id
-      )
-    );
+    useState<string[]>([]);
 
   const [openWalletMenuId, setOpenWalletMenuId] =
     useState<string | null>(null);
@@ -365,6 +221,12 @@ function App() {
 
   const [holdingToRemoveId, setHoldingToRemoveId] =
     useState<string | null>(null);
+
+  const [cryptoMutationError, setCryptoMutationError] =
+    useState("");
+
+  const [cryptoMutationPending, setCryptoMutationPending] =
+    useState(false);
 
   const [isRemoveAllHoldingsOpen, setIsRemoveAllHoldingsOpen] =
     useState(false);
@@ -394,6 +256,9 @@ function App() {
 
   const [importInputKey, setImportInputKey] =
     useState(0);
+
+  const [walletSubmitPending, setWalletSubmitPending] =
+    useState(false);
 
   // --------------------------------------------------
   // Load normalized portfolio
@@ -438,6 +303,35 @@ function App() {
       );
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const loadCryptoPortfolio = useCallback(async () => {
+    try {
+      setCryptoOwnershipLoading(true);
+
+      const response = await fetch("/api/crypto");
+      const data = await readApiResponse<CryptoPortfolioResponse>(
+        response,
+        "Unable to load saved crypto portfolio"
+      );
+
+      setCryptoWallets(data.wallets);
+      setCryptoHoldings(
+        data.holdings.map(hydrateCryptoHolding)
+      );
+      setWalletOrder(
+        data.wallets.map((wallet) => wallet.id)
+      );
+      setCryptoOwnershipError("");
+    } catch (error) {
+      setCryptoOwnershipError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load saved crypto portfolio"
+      );
+    } finally {
+      setCryptoOwnershipLoading(false);
     }
   }, []);
 
@@ -489,6 +383,10 @@ function App() {
   useEffect(() => {
     loadPortfolio();
   }, [loadPortfolio]);
+
+  useEffect(() => {
+    loadCryptoPortfolio();
+  }, [loadCryptoPortfolio]);
 
   const requiredCoinGeckoIds = useMemo(
     () =>
@@ -877,7 +775,8 @@ function App() {
 
         if (
           costBasisText !== "" &&
-          !Number.isFinite(costBasis)
+          (!Number.isFinite(costBasis) ||
+            (costBasis as number) < 0)
         ) {
           throw new Error(
             `Row ${rowNumber} has an invalid cost basis.`
@@ -904,7 +803,7 @@ function App() {
     }
   };
 
-  const handleAddWallet = (
+  const handleAddWallet = async (
     event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
@@ -943,77 +842,116 @@ function App() {
       return;
     }
 
-    if (editingWalletId) {
-      setCryptoWallets((wallets) =>
-        wallets.map((wallet) =>
-          wallet.id === editingWalletId
-            ? {
-                ...wallet,
-                name: trimmedName,
-                type: walletType,
-              }
-            : wallet
-        )
+    setWalletSubmitPending(true);
+    setWalletValidationMessage("");
+
+    try {
+      if (editingWalletId) {
+        const updateResponse = await fetch(
+          `/api/crypto/wallets/${encodeURIComponent(editingWalletId)}`,
+          {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              name: trimmedName,
+              type: walletType,
+            }),
+          }
+        );
+        const updateData = await readApiResponse<{
+          wallet: CryptoWallet;
+        }>(updateResponse, "Unable to update wallet");
+
+        setCryptoWallets((wallets) =>
+          wallets.map((wallet) =>
+            wallet.id === editingWalletId
+              ? updateData.wallet
+              : wallet
+          )
         );
 
-        const newHoldings: CryptoHolding[] =
-          importedHoldings.map((holding) => ({
+        if (importedHoldings.length > 0) {
+          const holdings = importedHoldings.map((holding) => ({
             id: crypto.randomUUID(),
             coinGeckoId: holding.coinGeckoId,
-            walletId: editingWalletId,
             symbol: holding.symbol,
             name: holding.name ?? holding.symbol,
             quantity: holding.quantity,
-            price: 0,
-            value: 0,
             costBasis: holding.costBasis ?? 0,
-            gain: 0,
-            gainPercent: 0,
-            change24h: 0,
           }));
+          const importResponse = await fetch(
+            `/api/crypto/wallets/${encodeURIComponent(editingWalletId)}/holdings`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ holdings }),
+            }
+          );
+          const importData = await readApiResponse<{
+            holdings: StoredCryptoHolding[];
+          }>(importResponse, "Unable to import holdings");
 
-        setCryptoHoldings((current) => [
-          ...current,
-          ...newHoldings,
-        ]);
-    } else {
-      const walletId = crypto.randomUUID();
-      const newHoldings: CryptoHolding[] =
-        importedHoldings.map((holding) => ({
+          setCryptoHoldings((current) => [
+            ...current,
+            ...importData.holdings.map(hydrateCryptoHolding),
+          ]);
+        }
+      } else {
+        const wallet: CryptoWallet = {
+          id: crypto.randomUUID(),
+          name: trimmedName,
+          type: walletType,
+        };
+        const holdings = importedHoldings.map((holding) => ({
           id: crypto.randomUUID(),
           coinGeckoId: holding.coinGeckoId,
-          walletId,
           symbol: holding.symbol,
           name: holding.name ?? holding.symbol,
           quantity: holding.quantity,
-          price: 0,
-          value: 0,
           costBasis: holding.costBasis ?? 0,
-          gain: 0,
-          gainPercent: 0,
-          change24h: 0,
         }));
+        const response = await fetch("/api/crypto/wallets", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ wallet, holdings }),
+        });
+        const data = await readApiResponse<{
+          wallet: CryptoWallet;
+          holdings: StoredCryptoHolding[];
+        }>(response, "Unable to create wallet");
 
-      setCryptoWallets((wallets) => [
-        ...wallets,
-        {
-          id: walletId,
-          name: trimmedName,
-          type: walletType,
-        },
-      ]);
-      setWalletOrder((order) => [
-        ...order,
-        walletId,
-      ]);
-      setCryptoHoldings((current) => [
-        ...current,
-        ...newHoldings,
-      ]);
+        setCryptoWallets((wallets) => [
+          ...wallets,
+          data.wallet,
+        ]);
+        setWalletOrder((order) => [
+          ...order,
+          data.wallet.id,
+        ]);
+        setCryptoHoldings((current) => [
+          ...current,
+          ...data.holdings.map(hydrateCryptoHolding),
+        ]);
+      }
+
+      setCryptoOwnershipError("");
+      resetWalletForm();
+      setIsAddWalletOpen(false);
+    } catch (error) {
+      setWalletValidationMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to save wallet"
+      );
+    } finally {
+      setWalletSubmitPending(false);
     }
-
-    resetWalletForm();
-    setIsAddWalletOpen(false);
   };
 
   const openDeleteWalletModal = (
@@ -1042,7 +980,7 @@ function App() {
     setDeleteWalletId(walletId);
   };
 
-  const confirmDeleteWallet = () => {
+  const confirmDeleteWallet = async () => {
     if (!deleteWalletId) {
       return;
     }
@@ -1060,25 +998,48 @@ function App() {
       return;
     }
 
-    setCryptoWallets((wallets) =>
-      wallets.filter(
-        (wallet) => wallet.id !== deleteWalletId
-      )
-    );
-    setWalletOrder((order) =>
-      order.filter((walletId) =>
-        walletId !== deleteWalletId
-      )
-    );
+    setCryptoMutationPending(true);
+    setDeleteValidationMessage("");
 
-    if (selectedCryptoWalletId === deleteWalletId) {
-      setSelectedCryptoWalletId(null);
+    try {
+      const response = await fetch(
+        `/api/crypto/wallets/${encodeURIComponent(deleteWalletId)}`,
+        { method: "DELETE" }
+      );
+      await readApiResponse<{ success: boolean }>(
+        response,
+        "Unable to delete wallet"
+      );
+
+      setCryptoWallets((wallets) =>
+        wallets.filter(
+          (wallet) => wallet.id !== deleteWalletId
+        )
+      );
+      setWalletOrder((order) =>
+        order.filter((walletId) =>
+          walletId !== deleteWalletId
+        )
+      );
+
+      if (selectedCryptoWalletId === deleteWalletId) {
+        setSelectedCryptoWalletId(null);
+      }
+
+      setCryptoOwnershipError("");
+      setDeleteWalletId(null);
+    } catch (error) {
+      setDeleteValidationMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to delete wallet"
+      );
+    } finally {
+      setCryptoMutationPending(false);
     }
-
-    setDeleteWalletId(null);
   };
 
-  const confirmHoldingRemoval = () => {
+  const confirmHoldingRemoval = async () => {
     if (!holdingToRemoveId) {
       return;
     }
@@ -1087,39 +1048,85 @@ function App() {
       (current) => current.id === holdingToRemoveId
     );
 
-    setCryptoHoldings((current) =>
-      current.filter(
-        (holding) => holding.id !== holdingToRemoveId
-      )
-    );
+    setCryptoMutationPending(true);
+    setCryptoMutationError("");
 
-    if (
-      holding &&
-      cryptoHoldings.filter(
-        (current) =>
-          current.walletId === holding.walletId &&
-          current.id !== holdingToRemoveId
-      ).length === 0
-    ) {
-      setWalletValidationMessage("");
+    try {
+      const response = await fetch(
+        `/api/crypto/holdings/${encodeURIComponent(holdingToRemoveId)}`,
+        { method: "DELETE" }
+      );
+      await readApiResponse<{ success: boolean }>(
+        response,
+        "Unable to remove holding"
+      );
+
+      setCryptoHoldings((current) =>
+        current.filter(
+          (holding) => holding.id !== holdingToRemoveId
+        )
+      );
+
+      if (
+        holding &&
+        cryptoHoldings.filter(
+          (current) =>
+            current.walletId === holding.walletId &&
+            current.id !== holdingToRemoveId
+        ).length === 0
+      ) {
+        setWalletValidationMessage("");
+      }
+
+      setCryptoOwnershipError("");
+      setHoldingToRemoveId(null);
+    } catch (error) {
+      setCryptoMutationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove holding"
+      );
+    } finally {
+      setCryptoMutationPending(false);
     }
-
-    setHoldingToRemoveId(null);
   };
 
-  const confirmRemoveAllHoldings = () => {
+  const confirmRemoveAllHoldings = async () => {
     if (!editingWalletId) {
       setIsRemoveAllHoldingsOpen(false);
       return;
     }
 
-    setCryptoHoldings((current) =>
-      current.filter(
-        (holding) => holding.walletId !== editingWalletId
-      )
-    );
-    setWalletValidationMessage("");
-    setIsRemoveAllHoldingsOpen(false);
+    setCryptoMutationPending(true);
+    setCryptoMutationError("");
+
+    try {
+      const response = await fetch(
+        `/api/crypto/wallets/${encodeURIComponent(editingWalletId)}/holdings`,
+        { method: "DELETE" }
+      );
+      await readApiResponse<{ success: boolean }>(
+        response,
+        "Unable to remove holdings"
+      );
+
+      setCryptoHoldings((current) =>
+        current.filter(
+          (holding) => holding.walletId !== editingWalletId
+        )
+      );
+      setCryptoOwnershipError("");
+      setWalletValidationMessage("");
+      setIsRemoveAllHoldingsOpen(false);
+    } catch (error) {
+      setCryptoMutationError(
+        error instanceof Error
+          ? error.message
+          : "Unable to remove holdings"
+      );
+    } finally {
+      setCryptoMutationPending(false);
+    }
   };
 
   const handleDeleteFromEdit = () => {
@@ -1609,6 +1616,20 @@ function App() {
                 </div>
 
                 {portfolioCategory === "crypto" &&
+                  cryptoOwnershipLoading && (
+                  <p className="wallet-delete-message">
+                    Loading saved crypto portfolio...
+                  </p>
+                )}
+
+                {portfolioCategory === "crypto" &&
+                  cryptoOwnershipError && (
+                  <p className="wallet-validation-message">
+                    {cryptoOwnershipError}
+                  </p>
+                )}
+
+                {portfolioCategory === "crypto" &&
                   cryptoPricingError && (
                   <p className="wallet-validation-message">
                     Live pricing unavailable: {cryptoPricingError}
@@ -2049,11 +2070,12 @@ function App() {
                               <button
                                 className="wallet-remove-holding-button"
                                 type="button"
-                                onClick={() =>
+                                onClick={() => {
+                                  setCryptoMutationError("");
                                   setHoldingToRemoveId(
                                     holding.id
-                                  )
-                                }
+                                  );
+                                }}
                               >
                                 Remove
                               </button>
@@ -2065,9 +2087,10 @@ function App() {
                       <button
                         className="wallet-delete-action wallet-remove-all-action"
                         type="button"
-                        onClick={() =>
-                          setIsRemoveAllHoldingsOpen(true)
-                        }
+                        onClick={() => {
+                          setCryptoMutationError("");
+                          setIsRemoveAllHoldingsOpen(true);
+                        }}
                       >
                         Remove All Holdings
                       </button>
@@ -2112,10 +2135,13 @@ function App() {
                 <button
                   className="wallet-submit-button"
                   type="submit"
+                  disabled={walletSubmitPending}
                 >
-                  {editingWalletId
-                    ? "Save Changes"
-                    : "Add Wallet"}
+                  {walletSubmitPending
+                    ? "Saving..."
+                    : editingWalletId
+                      ? "Save Changes"
+                      : "Add Wallet"}
                 </button>
               </div>
             </form>
@@ -2199,6 +2225,7 @@ function App() {
                   className="wallet-submit-button"
                   type="button"
                   onClick={confirmDeleteWallet}
+                  disabled={cryptoMutationPending}
                 >
                   Delete Wallet
                 </button>
@@ -2251,6 +2278,12 @@ function App() {
               This will remove this holding from {holdingToRemoveWallet?.name ?? "the wallet"}.
             </p>
 
+            {cryptoMutationError && (
+              <p className="wallet-validation-message">
+                {cryptoMutationError}
+              </p>
+            )}
+
             <div className="wallet-modal-actions">
               <button
                 className="wallet-cancel-button"
@@ -2266,6 +2299,7 @@ function App() {
                 className="wallet-submit-button"
                 type="button"
                 onClick={confirmHoldingRemoval}
+                disabled={cryptoMutationPending}
               >
                 Remove
               </button>
@@ -2324,6 +2358,12 @@ function App() {
               This action cannot be undone.
             </p>
 
+            {cryptoMutationError && (
+              <p className="wallet-validation-message">
+                {cryptoMutationError}
+              </p>
+            )}
+
             <div className="wallet-modal-actions">
               <button
                 className="wallet-cancel-button"
@@ -2339,6 +2379,7 @@ function App() {
                 className="wallet-delete-action"
                 type="button"
                 onClick={confirmRemoveAllHoldings}
+                disabled={cryptoMutationPending}
               >
                 Remove All
               </button>

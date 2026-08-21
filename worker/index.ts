@@ -15,6 +15,236 @@ interface CoinGeckoMarket {
   price_change_percentage_24h: number | null;
 }
 
+type CryptoWalletType =
+  | "exchange"
+  | "hardware_wallet"
+  | "software_wallet"
+  | "other";
+
+interface CryptoWalletInput {
+  id: string;
+  name: string;
+  type: CryptoWalletType;
+}
+
+interface CryptoHoldingInput {
+  id: string;
+  symbol: string;
+  name: string;
+  coinGeckoId: string;
+  quantity: number;
+  costBasis: number;
+}
+
+interface CryptoWalletRow {
+  id: string;
+  name: string;
+  type: CryptoWalletType;
+}
+
+interface CryptoHoldingRow {
+  id: string;
+  wallet_id: string;
+  symbol: string;
+  name: string;
+  coingecko_id: string;
+  quantity: number;
+  cost_basis: number;
+}
+
+const CRYPTO_WALLET_TYPES = new Set<CryptoWalletType>([
+  "exchange",
+  "hardware_wallet",
+  "software_wallet",
+  "other",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseCryptoWallet(value: unknown):
+  | { wallet: CryptoWalletInput }
+  | { error: string } {
+  if (!isRecord(value)) {
+    return { error: "Wallet is required" };
+  }
+
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  const type = value.type;
+
+  if (!id) {
+    return { error: "Wallet ID is required" };
+  }
+
+  if (!name) {
+    return { error: "Wallet name is required" };
+  }
+
+  if (
+    typeof type !== "string" ||
+    !CRYPTO_WALLET_TYPES.has(type as CryptoWalletType)
+  ) {
+    return { error: "Wallet type is invalid" };
+  }
+
+  return {
+    wallet: {
+      id,
+      name,
+      type: type as CryptoWalletType,
+    },
+  };
+}
+
+function parseCryptoHoldings(value: unknown):
+  | { holdings: CryptoHoldingInput[] }
+  | { error: string } {
+  if (!Array.isArray(value)) {
+    return { error: "Holdings must be an array" };
+  }
+
+  if (value.length > 500) {
+    return { error: "A maximum of 500 holdings may be imported at once" };
+  }
+
+  const holdings: CryptoHoldingInput[] = [];
+  const holdingIds = new Set<string>();
+
+  for (let index = 0; index < value.length; index += 1) {
+    const rowNumber = index + 1;
+    const holding = value[index];
+
+    if (!isRecord(holding)) {
+      return { error: `Holding ${rowNumber} is invalid` };
+    }
+
+    const id = typeof holding.id === "string" ? holding.id.trim() : "";
+    const symbol =
+      typeof holding.symbol === "string"
+        ? holding.symbol.trim().toUpperCase()
+        : "";
+    const name =
+      typeof holding.name === "string" ? holding.name.trim() : "";
+    const coinGeckoId =
+      typeof holding.coinGeckoId === "string"
+        ? holding.coinGeckoId.trim()
+        : "";
+    const quantity = holding.quantity;
+    const costBasis = holding.costBasis;
+
+    if (!id || holdingIds.has(id)) {
+      return { error: `Holding ${rowNumber} must have a unique ID` };
+    }
+
+    if (!symbol) {
+      return { error: `Holding ${rowNumber} must have a symbol` };
+    }
+
+    if (!name) {
+      return { error: `Holding ${rowNumber} must have a name` };
+    }
+
+    if (!coinGeckoId) {
+      return { error: `Holding ${rowNumber} must have a CoinGecko ID` };
+    }
+
+    if (
+      typeof quantity !== "number" ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) {
+      return { error: `Holding ${rowNumber} has an invalid quantity` };
+    }
+
+    if (
+      typeof costBasis !== "number" ||
+      !Number.isFinite(costBasis) ||
+      costBasis < 0
+    ) {
+      return { error: `Holding ${rowNumber} has an invalid cost basis` };
+    }
+
+    holdingIds.add(id);
+    holdings.push({
+      id,
+      symbol,
+      name,
+      coinGeckoId,
+      quantity,
+      costBasis,
+    });
+  }
+
+  return { holdings };
+}
+
+function normalizeCryptoHolding(
+  holding: CryptoHoldingRow
+) {
+  return {
+    id: holding.id,
+    walletId: holding.wallet_id,
+    symbol: holding.symbol,
+    name: holding.name,
+    coinGeckoId: holding.coingecko_id,
+    quantity: holding.quantity,
+    costBasis: holding.cost_basis,
+  };
+}
+
+function prepareCryptoHoldingsInsert(
+  database: D1Database,
+  walletId: string,
+  holdings: CryptoHoldingInput[],
+  requireEmptyWallet: boolean
+) {
+  const emptyWalletClause = requireEmptyWallet
+    ? `
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM crypto_holdings
+        WHERE wallet_id = ?
+      )
+    `
+    : "";
+  const statement = database.prepare(`
+    INSERT INTO crypto_holdings (
+      id,
+      wallet_id,
+      symbol,
+      name,
+      coingecko_id,
+      quantity,
+      cost_basis
+    )
+    SELECT
+      json_extract(value, '$.id'),
+      ?,
+      json_extract(value, '$.symbol'),
+      json_extract(value, '$.name'),
+      json_extract(value, '$.coinGeckoId'),
+      json_extract(value, '$.quantity'),
+      json_extract(value, '$.costBasis')
+    FROM json_each(?)
+    ${emptyWalletClause}
+  `);
+  const serializedHoldings = JSON.stringify(holdings);
+
+  return requireEmptyWallet
+    ? statement.bind(walletId, serializedHoldings, walletId)
+    : statement.bind(walletId, serializedHoldings);
+}
+
+function isConstraintError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.message.includes("UNIQUE constraint failed") ||
+      error.message.includes("FOREIGN KEY constraint failed"))
+  );
+}
+
 interface PlaidAccount {
   account_id: string;
   name: string;
@@ -351,6 +581,428 @@ export default {
         return Response.json(
           { error: "Unable to retrieve crypto prices" },
           { status: 502 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Get persisted crypto ownership data
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/crypto" &&
+      request.method === "GET"
+    ) {
+      try {
+        const [walletResult, holdingResult] = await Promise.all([
+          env.finance_dashboard_db
+            .prepare(`
+              SELECT id, name, type
+              FROM crypto_wallets
+              ORDER BY created_at, id
+            `)
+            .all<CryptoWalletRow>(),
+          env.finance_dashboard_db
+            .prepare(`
+              SELECT
+                id,
+                wallet_id,
+                symbol,
+                name,
+                coingecko_id,
+                quantity,
+                cost_basis
+              FROM crypto_holdings
+              ORDER BY created_at, id
+            `)
+            .all<CryptoHoldingRow>(),
+        ]);
+
+        return Response.json({
+          wallets: walletResult.results,
+          holdings: holdingResult.results.map(
+            normalizeCryptoHolding
+          ),
+        });
+      } catch (error) {
+        console.error(
+          "Crypto portfolio load error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to load saved crypto portfolio" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Create wallet with optional holdings
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/crypto/wallets" &&
+      request.method === "POST"
+    ) {
+      try {
+        const body = (await request.json()) as unknown;
+
+        if (!isRecord(body)) {
+          return Response.json(
+            { error: "Request body is invalid" },
+            { status: 400 }
+          );
+        }
+
+        const walletResult = parseCryptoWallet(body.wallet);
+        const holdingResult = parseCryptoHoldings(
+          body.holdings ?? []
+        );
+
+        if ("error" in walletResult) {
+          return Response.json(
+            { error: walletResult.error },
+            { status: 400 }
+          );
+        }
+
+        if ("error" in holdingResult) {
+          return Response.json(
+            { error: holdingResult.error },
+            { status: 400 }
+          );
+        }
+
+        const { wallet } = walletResult;
+        const { holdings } = holdingResult;
+        const statements: D1PreparedStatement[] = [
+          env.finance_dashboard_db
+            .prepare(`
+              INSERT INTO crypto_wallets (id, name, type)
+              VALUES (?, ?, ?)
+            `)
+            .bind(wallet.id, wallet.name, wallet.type),
+        ];
+
+        if (holdings.length > 0) {
+          statements.push(
+            prepareCryptoHoldingsInsert(
+              env.finance_dashboard_db,
+              wallet.id,
+              holdings,
+              false
+            )
+          );
+        }
+
+        await env.finance_dashboard_db.batch(statements);
+
+        return Response.json(
+          {
+            wallet,
+            holdings: holdings.map((holding) => ({
+              ...holding,
+              walletId: wallet.id,
+            })),
+          },
+          { status: 201 }
+        );
+      } catch (error) {
+        if (isConstraintError(error)) {
+          return Response.json(
+            { error: "Wallet or holding already exists" },
+            { status: 409 }
+          );
+        }
+
+        console.error(
+          "Crypto wallet creation error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to create wallet" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const cryptoWalletHoldingsMatch =
+      url.pathname.match(
+        /^\/api\/crypto\/wallets\/([^/]+)\/holdings$/
+      );
+
+    // --------------------------------------------------
+    // Import holdings into an empty wallet
+    // --------------------------------------------------
+    if (
+      cryptoWalletHoldingsMatch &&
+      request.method === "POST"
+    ) {
+      const walletId = cryptoWalletHoldingsMatch[1];
+
+      try {
+        const body = (await request.json()) as unknown;
+        const holdingResult = parseCryptoHoldings(
+          isRecord(body) ? body.holdings : undefined
+        );
+
+        if ("error" in holdingResult) {
+          return Response.json(
+            { error: holdingResult.error },
+            { status: 400 }
+          );
+        }
+
+        if (holdingResult.holdings.length === 0) {
+          return Response.json(
+            { error: "At least one holding is required" },
+            { status: 400 }
+          );
+        }
+
+        const wallet = await env.finance_dashboard_db
+          .prepare(`
+            SELECT id
+            FROM crypto_wallets
+            WHERE id = ?
+          `)
+          .bind(walletId)
+          .first<{ id: string }>();
+
+        if (!wallet) {
+          return Response.json(
+            { error: "Wallet not found" },
+            { status: 404 }
+          );
+        }
+
+        const holdings = holdingResult.holdings;
+        const insertResult = await prepareCryptoHoldingsInsert(
+          env.finance_dashboard_db,
+          walletId,
+          holdings,
+          true
+        ).run();
+
+        if (insertResult.meta.changes !== holdings.length) {
+          return Response.json(
+            {
+              error:
+                "Remove all existing holdings before importing a CSV.",
+            },
+            { status: 409 }
+          );
+        }
+
+        return Response.json(
+          {
+            holdings: holdings.map((holding) => ({
+              ...holding,
+              walletId,
+            })),
+          },
+          { status: 201 }
+        );
+      } catch (error) {
+        if (isConstraintError(error)) {
+          return Response.json(
+            { error: "One or more holdings already exist" },
+            { status: 409 }
+          );
+        }
+
+        console.error(
+          "Crypto holdings import error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to import holdings" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Remove all holdings from one wallet
+    // --------------------------------------------------
+    if (
+      cryptoWalletHoldingsMatch &&
+      request.method === "DELETE"
+    ) {
+      const walletId = cryptoWalletHoldingsMatch[1];
+
+      try {
+        const wallet = await env.finance_dashboard_db
+          .prepare("SELECT id FROM crypto_wallets WHERE id = ?")
+          .bind(walletId)
+          .first<{ id: string }>();
+
+        if (!wallet) {
+          return Response.json(
+            { error: "Wallet not found" },
+            { status: 404 }
+          );
+        }
+
+        await env.finance_dashboard_db
+          .prepare("DELETE FROM crypto_holdings WHERE wallet_id = ?")
+          .bind(walletId)
+          .run();
+
+        return Response.json({ success: true });
+      } catch (error) {
+        console.error(
+          "Crypto holdings removal error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to remove holdings" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const cryptoWalletMatch =
+      url.pathname.match(/^\/api\/crypto\/wallets\/([^/]+)$/);
+
+    // --------------------------------------------------
+    // Update wallet metadata
+    // --------------------------------------------------
+    if (cryptoWalletMatch && request.method === "PUT") {
+      const walletId = cryptoWalletMatch[1];
+
+      try {
+        const body = (await request.json()) as unknown;
+        const walletResult = parseCryptoWallet({
+          ...(isRecord(body) ? body : {}),
+          id: walletId,
+        });
+
+        if ("error" in walletResult) {
+          return Response.json(
+            { error: walletResult.error },
+            { status: 400 }
+          );
+        }
+
+        const result = await env.finance_dashboard_db
+          .prepare(`
+            UPDATE crypto_wallets
+            SET name = ?, type = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `)
+          .bind(
+            walletResult.wallet.name,
+            walletResult.wallet.type,
+            walletId
+          )
+          .run();
+
+        if (result.meta.changes === 0) {
+          return Response.json(
+            { error: "Wallet not found" },
+            { status: 404 }
+          );
+        }
+
+        return Response.json({ wallet: walletResult.wallet });
+      } catch (error) {
+        console.error(
+          "Crypto wallet update error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to update wallet" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Delete an empty wallet
+    // --------------------------------------------------
+    if (cryptoWalletMatch && request.method === "DELETE") {
+      const walletId = cryptoWalletMatch[1];
+
+      try {
+        const result = await env.finance_dashboard_db
+          .prepare(`
+            DELETE FROM crypto_wallets
+            WHERE id = ?
+              AND NOT EXISTS (
+                SELECT 1
+                FROM crypto_holdings
+                WHERE wallet_id = ?
+              )
+          `)
+          .bind(walletId, walletId)
+          .run();
+
+        if (result.meta.changes === 0) {
+          const wallet = await env.finance_dashboard_db
+            .prepare("SELECT id FROM crypto_wallets WHERE id = ?")
+            .bind(walletId)
+            .first<{ id: string }>();
+
+          return Response.json(
+            {
+              error: wallet
+                ? "Remove all holdings before deleting this wallet."
+                : "Wallet not found",
+            },
+            { status: wallet ? 409 : 404 }
+          );
+        }
+
+        return Response.json({ success: true });
+      } catch (error) {
+        console.error(
+          "Crypto wallet deletion error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to delete wallet" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const cryptoHoldingMatch =
+      url.pathname.match(/^\/api\/crypto\/holdings\/([^/]+)$/);
+
+    // --------------------------------------------------
+    // Remove one holding by its unique ID
+    // --------------------------------------------------
+    if (cryptoHoldingMatch && request.method === "DELETE") {
+      const holdingId = cryptoHoldingMatch[1];
+
+      try {
+        const result = await env.finance_dashboard_db
+          .prepare("DELETE FROM crypto_holdings WHERE id = ?")
+          .bind(holdingId)
+          .run();
+
+        if (result.meta.changes === 0) {
+          return Response.json(
+            { error: "Holding not found" },
+            { status: 404 }
+          );
+        }
+
+        return Response.json({ success: true });
+      } catch (error) {
+        console.error(
+          "Crypto holding deletion error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to remove holding" },
+          { status: 500 }
         );
       }
     }
