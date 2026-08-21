@@ -485,6 +485,82 @@ button {
   border-color: #6997ff;
 }
 
+.wallet-import-section {
+  margin-top: 22px;
+
+  border-top: 1px solid #1d2633;
+}
+
+.wallet-import-header {
+  display: flex;
+  justify-content: space-between;
+
+  padding: 14px 0 8px;
+
+  color: #8d99aa;
+
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.wallet-import-header span:last-child {
+  color: #667487;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.wallet-file-input {
+  display: inline-flex;
+  align-items: center;
+
+  padding: 7px 11px;
+
+  border: 1px solid #3a4658;
+  border-radius: 6px;
+
+  background: #111722;
+  color: #c5cedb;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wallet-file-input:hover {
+  background: #182131;
+  border-color: #536176;
+}
+
+.wallet-file-input input {
+  position: absolute;
+
+  width: 1px;
+  height: 1px;
+
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wallet-import-file-name {
+  margin: 9px 0 0;
+
+  color: #667487;
+
+  font-size: 11px;
+}
+
+.wallet-import-preview {
+  margin-top: 12px;
+
+  padding-top: 2px;
+
+  border-top: 1px solid #181f29;
+}
+
 .wallet-validation-message {
   margin: 14px 0 0;
 

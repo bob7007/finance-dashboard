@@ -59,6 +59,13 @@ interface CryptoHolding {
   change24h: number;
 }
 
+interface ImportedCryptoHolding {
+  symbol: string;
+  name?: string;
+  quantity: number;
+  costBasis?: number;
+}
+
 interface CryptoWallet {
   id: string;
   name: string;
@@ -357,6 +364,15 @@ function App() {
   const [walletValidationMessage, setWalletValidationMessage] =
     useState("");
 
+  const [importedHoldings, setImportedHoldings] =
+    useState<ImportedCryptoHolding[]>([]);
+
+  const [holdingImportError, setHoldingImportError] =
+    useState("");
+
+  const [selectedImportFileName, setSelectedImportFileName] =
+    useState("");
+
   // --------------------------------------------------
   // Load normalized portfolio
   // --------------------------------------------------
@@ -623,6 +639,9 @@ function App() {
     setWalletType("hardware_wallet");
     setWalletValidationMessage("");
     setEditingWalletId(null);
+    setImportedHoldings([]);
+    setHoldingImportError("");
+    setSelectedImportFileName("");
   };
 
   const openAddWalletModal = () => {
@@ -637,8 +656,110 @@ function App() {
     setWalletName(wallet.name);
     setWalletType(wallet.type);
     setWalletValidationMessage("");
+    setImportedHoldings([]);
+    setHoldingImportError("");
+    setSelectedImportFileName("");
     setOpenWalletMenuId(null);
     setIsAddWalletOpen(true);
+  };
+
+  const handleHoldingCsvChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+
+    setImportedHoldings([]);
+    setHoldingImportError("");
+    setSelectedImportFileName(file?.name ?? "");
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const lines = (await file.text())
+        .replace(/^\uFEFF/, "")
+        .split(/\r?\n/)
+        .filter((line) => line.trim());
+
+      if (lines.length < 2) {
+        throw new Error(
+          "CSV must contain a header and at least one holding row."
+        );
+      }
+
+      const headers = lines[0]
+        .split(",")
+        .map((header) => header.trim().toLowerCase());
+      const symbolIndex = headers.indexOf("symbol");
+      const quantityIndex = headers.indexOf("quantity");
+      const nameIndex = headers.indexOf("name");
+      const costBasisIndex = headers.indexOf("costbasis");
+
+      if (symbolIndex === -1 || quantityIndex === -1) {
+        throw new Error(
+          "CSV must contain symbol and quantity columns."
+        );
+      }
+
+      const parsedHoldings: ImportedCryptoHolding[] = [];
+
+      for (let index = 1; index < lines.length; index += 1) {
+        const rowNumber = index + 1;
+        const values = lines[index]
+          .split(",")
+          .map((value) => value.trim());
+        const symbol = values[symbolIndex]?.toUpperCase() ?? "";
+        const quantityText = values[quantityIndex] ?? "";
+        const quantity = Number(quantityText);
+        const name = values[nameIndex]?.trim();
+        const costBasisText =
+          costBasisIndex === -1
+            ? ""
+            : values[costBasisIndex] ?? "";
+        const costBasis =
+          costBasisText === ""
+            ? undefined
+            : Number(costBasisText);
+
+        if (!symbol) {
+          throw new Error(
+            `Row ${rowNumber} has an empty symbol.`
+          );
+        }
+
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error(
+            `Row ${rowNumber} has an invalid quantity.`
+          );
+        }
+
+        if (
+          costBasisText !== "" &&
+          !Number.isFinite(costBasis)
+        ) {
+          throw new Error(
+            `Row ${rowNumber} has an invalid cost basis.`
+          );
+        }
+
+        parsedHoldings.push({
+          symbol,
+          name: name || undefined,
+          quantity,
+          costBasis,
+        });
+      }
+
+      setImportedHoldings(parsedHoldings);
+    } catch (error) {
+      setSelectedImportFileName("");
+      setHoldingImportError(
+        error instanceof Error
+          ? error.message
+          : "Unable to parse CSV."
+      );
+    }
   };
 
   const handleAddWallet = (
@@ -683,6 +804,21 @@ function App() {
       );
     } else {
       const walletId = crypto.randomUUID();
+      const newHoldings: CryptoHolding[] =
+        importedHoldings.map((holding) => ({
+          id: crypto.randomUUID(),
+          coinId: holding.symbol.toLowerCase(),
+          walletId,
+          symbol: holding.symbol,
+          name: holding.name ?? holding.symbol,
+          quantity: holding.quantity,
+          price: 0,
+          value: 0,
+          costBasis: holding.costBasis ?? 0,
+          gain: 0,
+          gainPercent: 0,
+          change24h: 0,
+        }));
 
       setCryptoWallets((wallets) => [
         ...wallets,
@@ -695,6 +831,10 @@ function App() {
       setWalletOrder((order) => [
         ...order,
         walletId,
+      ]);
+      setCryptoHoldings((current) => [
+        ...current,
+        ...newHoldings,
       ]);
     }
 
@@ -1612,6 +1752,74 @@ function App() {
                 </select>
               </label>
 
+              {!editingWallet && (
+                <section className="wallet-import-section">
+                  <div className="wallet-import-header">
+                    <span>Import Holdings</span>
+                    <span>Optional CSV file</span>
+                  </div>
+
+                  <label className="wallet-file-input">
+                    <span>Choose CSV</span>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={handleHoldingCsvChange}
+                    />
+                  </label>
+
+                  {selectedImportFileName && (
+                    <p className="wallet-import-file-name">
+                      {selectedImportFileName}
+                    </p>
+                  )}
+
+                  {holdingImportError && (
+                    <p className="wallet-validation-message">
+                      {holdingImportError}
+                    </p>
+                  )}
+
+                  {importedHoldings.length > 0 && (
+                    <div className="wallet-import-preview">
+                      <div className="wallet-holdings-header">
+                        <span>Holdings to import</span>
+                        <span>
+                          {importedHoldings.length}
+                        </span>
+                      </div>
+
+                      {importedHoldings.map(
+                        (holding, index) => (
+                          <div
+                            className="wallet-holding-row"
+                            key={`${holding.symbol}-${index}`}
+                          >
+                            <div>
+                              <strong>{holding.symbol}</strong>
+                              <span>
+                                {formatQuantity(
+                                  holding.quantity
+                                )} {holding.symbol}
+                              </span>
+                            </div>
+
+                            {holding.costBasis !==
+                              undefined && (
+                              <span>
+                                Cost basis {formatCurrency(
+                                  holding.costBasis
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+
               {editingWallet && (
                 <section className="wallet-holdings-section">
                   <div className="wallet-holdings-header">
@@ -1756,7 +1964,7 @@ function App() {
             deleteWalletHoldingCount > 0 ? (
               <p className="wallet-validation-message">
                 {deleteValidationMessage ||
-                  `This wallet contains ${deleteWalletHoldingCount} holdings. Remove or move its holdings before deleting the wallet.`}
+                  "Remove all holdings before deleting this wallet."}
               </p>
             ) : (
               <p className="wallet-delete-message">
