@@ -46,7 +46,7 @@ interface PortfolioResponse {
 
 interface CryptoHolding {
   id: string;
-  coinId: string;
+  coinGeckoId: string;
   walletId: string;
   symbol: string;
   name: string;
@@ -62,8 +62,21 @@ interface CryptoHolding {
 interface ImportedCryptoHolding {
   symbol: string;
   name?: string;
+  coinGeckoId: string;
   quantity: number;
   costBasis?: number;
+}
+
+interface CryptoPriceResponse {
+  prices: Record<
+    string,
+    {
+      symbol: string;
+      name: string;
+      price: number;
+      change24h: number;
+    }
+  >;
 }
 
 interface CryptoWallet {
@@ -108,7 +121,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
     ? [
         {
           id: "holding-kraken-btc",
-          coinId: "btc-local",
+          coinGeckoId: "bitcoin",
           walletId: "kraken",
           symbol: "BTC",
           name: "Bitcoin",
@@ -122,7 +135,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-kraken-eth",
-          coinId: "eth-local",
+          coinGeckoId: "ethereum",
           walletId: "kraken",
           symbol: "ETH",
           name: "Ethereum",
@@ -136,7 +149,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-kraken-sol",
-          coinId: "sol-local",
+          coinGeckoId: "solana",
           walletId: "kraken",
           symbol: "SOL",
           name: "Solana",
@@ -150,7 +163,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-coinbase-btc",
-          coinId: "btc-local",
+          coinGeckoId: "bitcoin",
           walletId: "coinbase",
           symbol: "BTC",
           name: "Bitcoin",
@@ -164,7 +177,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-coinbase-eth",
-          coinId: "eth-local",
+          coinGeckoId: "ethereum",
           walletId: "coinbase",
           symbol: "ETH",
           name: "Ethereum",
@@ -178,7 +191,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-coinbase-link",
-          coinId: "link-local",
+          coinGeckoId: "chainlink",
           walletId: "coinbase",
           symbol: "LINK",
           name: "Chainlink",
@@ -192,7 +205,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-trezor-btc",
-          coinId: "btc-local",
+          coinGeckoId: "bitcoin",
           walletId: "trezor-safe-3",
           symbol: "BTC",
           name: "Bitcoin",
@@ -206,7 +219,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-trezor-sol",
-          coinId: "sol-local",
+          coinGeckoId: "solana",
           walletId: "trezor-safe-3",
           symbol: "SOL",
           name: "Solana",
@@ -220,7 +233,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-trezor-link",
-          coinId: "link-local",
+          coinGeckoId: "chainlink",
           walletId: "trezor-safe-3",
           symbol: "LINK",
           name: "Chainlink",
@@ -234,7 +247,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-phantom-sol",
-          coinId: "sol-local",
+          coinGeckoId: "solana",
           walletId: "phantom",
           symbol: "SOL",
           name: "Solana",
@@ -248,7 +261,7 @@ const developmentCryptoHoldings: CryptoHolding[] =
         },
         {
           id: "holding-phantom-eth",
-          coinId: "eth-local",
+          coinGeckoId: "ethereum",
           walletId: "phantom",
           symbol: "ETH",
           name: "Ethereum",
@@ -327,6 +340,9 @@ function App() {
     useState<CryptoHolding[]>(
       developmentCryptoHoldings
     );
+
+  const [cryptoPricingError, setCryptoPricingError] =
+    useState("");
 
   const [walletOrder, setWalletOrder] =
     useState<string[]>(() =>
@@ -474,6 +490,109 @@ function App() {
     loadPortfolio();
   }, [loadPortfolio]);
 
+  const requiredCoinGeckoIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          cryptoHoldings.map(
+            (holding) => holding.coinGeckoId
+          )
+        )
+      )
+        .sort()
+        .join(","),
+    [cryptoHoldings]
+  );
+
+  useEffect(() => {
+    if (!requiredCoinGeckoIds) {
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadCryptoPrices = async () => {
+      try {
+        const searchParams = new URLSearchParams({
+          ids: requiredCoinGeckoIds,
+        });
+        const response = await fetch(
+          `/api/crypto/prices?${searchParams.toString()}`,
+          { signal: controller.signal }
+        );
+        const data =
+          (await response.json()) as
+            | CryptoPriceResponse
+            | { error?: string };
+
+        if (!response.ok || !("prices" in data)) {
+          throw new Error(
+            "error" in data && data.error
+              ? data.error
+              : "Unable to load crypto prices"
+          );
+        }
+
+        setCryptoHoldings((current) =>
+          current.map((holding) => {
+            const marketData =
+              data.prices[holding.coinGeckoId];
+
+            if (!marketData) {
+              return {
+                ...holding,
+                price: 0,
+                value: 0,
+                gain: 0,
+                gainPercent: 0,
+                change24h: 0,
+              };
+            }
+
+            const value =
+              holding.quantity * marketData.price;
+            const gain = value - holding.costBasis;
+            const gainPercent =
+              holding.costBasis === 0
+                ? 0
+                : (gain / holding.costBasis) * 100;
+
+            return {
+              ...holding,
+              price: marketData.price,
+              value,
+              gain,
+              gainPercent,
+              change24h: marketData.change24h,
+            };
+          })
+        );
+        setCryptoPricingError("");
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+
+        setCryptoPricingError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load crypto prices"
+        );
+      }
+    };
+
+    void loadCryptoPrices();
+    const refreshInterval = window.setInterval(
+      () => void loadCryptoPrices(),
+      5 * 60 * 1000
+    );
+
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshInterval);
+    };
+  }, [requiredCoinGeckoIds]);
+
   // --------------------------------------------------
   // Plaid Link
   // --------------------------------------------------
@@ -573,7 +692,7 @@ function App() {
 
   const cryptoAssetCount = new Set(
     cryptoHoldings.map(
-      (holding) => holding.coinId || holding.symbol
+      (holding) => holding.coinGeckoId
     )
   ).size;
 
@@ -701,13 +820,18 @@ function App() {
         .split(",")
         .map((header) => header.trim().toLowerCase());
       const symbolIndex = headers.indexOf("symbol");
+      const coinGeckoIdIndex = headers.indexOf("coingeckoid");
       const quantityIndex = headers.indexOf("quantity");
       const nameIndex = headers.indexOf("name");
       const costBasisIndex = headers.indexOf("costbasis");
 
-      if (symbolIndex === -1 || quantityIndex === -1) {
+      if (
+        symbolIndex === -1 ||
+        coinGeckoIdIndex === -1 ||
+        quantityIndex === -1
+      ) {
         throw new Error(
-          "CSV must contain symbol and quantity columns."
+          "CSV must contain symbol, coinGeckoId, and quantity columns."
         );
       }
 
@@ -719,6 +843,8 @@ function App() {
           .split(",")
           .map((value) => value.trim());
         const symbol = values[symbolIndex]?.toUpperCase() ?? "";
+        const coinGeckoId =
+          values[coinGeckoIdIndex]?.trim() ?? "";
         const quantityText = values[quantityIndex] ?? "";
         const quantity = Number(quantityText);
         const name = values[nameIndex]?.trim();
@@ -734,6 +860,12 @@ function App() {
         if (!symbol) {
           throw new Error(
             `Row ${rowNumber} has an empty symbol.`
+          );
+        }
+
+        if (!coinGeckoId) {
+          throw new Error(
+            `Row ${rowNumber} is missing a CoinGecko ID.`
           );
         }
 
@@ -755,6 +887,7 @@ function App() {
         parsedHoldings.push({
           symbol,
           name: name || undefined,
+          coinGeckoId,
           quantity,
           costBasis,
         });
@@ -826,7 +959,7 @@ function App() {
         const newHoldings: CryptoHolding[] =
           importedHoldings.map((holding) => ({
             id: crypto.randomUUID(),
-            coinId: holding.symbol.toLowerCase(),
+            coinGeckoId: holding.coinGeckoId,
             walletId: editingWalletId,
             symbol: holding.symbol,
             name: holding.name ?? holding.symbol,
@@ -848,7 +981,7 @@ function App() {
       const newHoldings: CryptoHolding[] =
         importedHoldings.map((holding) => ({
           id: crypto.randomUUID(),
-          coinId: holding.symbol.toLowerCase(),
+          coinGeckoId: holding.coinGeckoId,
           walletId,
           symbol: holding.symbol,
           name: holding.name ?? holding.symbol,
@@ -1475,6 +1608,13 @@ function App() {
                   </div>
                 </div>
 
+                {portfolioCategory === "crypto" &&
+                  cryptoPricingError && (
+                  <p className="wallet-validation-message">
+                    Live pricing unavailable: {cryptoPricingError}
+                  </p>
+                )}
+
                 <div className="table-container">
                   {portfolioCategory === "brokerage" ? (
                   <table className="holdings-table">
@@ -1640,7 +1780,7 @@ function App() {
                                 {holding.name}
                               </div>
                               <div className="security-type">
-                                {holding.coinId}
+                                {holding.coinGeckoId}
                               </div>
                             </td>
 
@@ -1860,6 +2000,7 @@ function App() {
                                   holding.quantity
                                 )} {holding.symbol}
                               </span>
+                              <span>{holding.coinGeckoId}</span>
                             </div>
 
                             {holding.costBasis !==

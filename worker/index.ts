@@ -1,9 +1,18 @@
 interface Env {
+  COINGECKO_API_KEY: string;
   PLAID_CLIENT_ID: string;
   PLAID_SECRET: string;
   PLAID_ENV: string;
   PLAID_TOKEN_ENCRYPTION_KEY: string;
   finance_dashboard_db: D1Database;
+}
+
+interface CoinGeckoMarket {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number | null;
+  price_change_percentage_24h: number | null;
 }
 
 interface PlaidAccount {
@@ -232,6 +241,119 @@ export default {
       env.PLAID_ENV === "production"
         ? "https://terminal.7007solutions.com/oauth-return"
         : undefined;
+
+    // --------------------------------------------------
+    // Get normalized crypto market prices
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/crypto/prices" &&
+      request.method === "GET"
+    ) {
+      const requestedIds =
+        url.searchParams
+          .get("ids")
+          ?.split(",")
+          .map((id) => id.trim())
+          .filter(Boolean) ?? [];
+      const coinGeckoIds = Array.from(
+        new Set(requestedIds)
+      );
+
+      if (coinGeckoIds.length === 0) {
+        return Response.json(
+          { error: "At least one CoinGecko ID is required" },
+          { status: 400 }
+        );
+      }
+
+      if (
+        coinGeckoIds.length > 100 ||
+        coinGeckoIds.some(
+          (id) =>
+            id.length > 100 ||
+            !/^[a-z0-9-]+$/.test(id)
+        )
+      ) {
+        return Response.json(
+          { error: "One or more CoinGecko IDs are invalid" },
+          { status: 400 }
+        );
+      }
+
+      if (!env.COINGECKO_API_KEY) {
+        return Response.json(
+          { error: "Crypto pricing is not configured" },
+          { status: 500 }
+        );
+      }
+
+      try {
+        const coinGeckoUrl = new URL(
+          "https://api.coingecko.com/api/v3/coins/markets"
+        );
+        coinGeckoUrl.search = new URLSearchParams({
+          vs_currency: "usd",
+          ids: coinGeckoIds.join(","),
+        }).toString();
+
+        const response = await fetch(coinGeckoUrl, {
+          headers: {
+            "x-cg-demo-api-key": env.COINGECKO_API_KEY,
+          },
+        });
+
+        if (!response.ok) {
+          return Response.json(
+            { error: "Unable to retrieve crypto prices" },
+            { status: response.status }
+          );
+        }
+
+        const marketData =
+          (await response.json()) as CoinGeckoMarket[];
+        const prices: Record<
+          string,
+          {
+            symbol: string;
+            name: string;
+            price: number;
+            change24h: number;
+          }
+        > = {};
+
+        for (const coin of marketData) {
+          if (
+            !coinGeckoIds.includes(coin.id) ||
+            !Number.isFinite(coin.current_price)
+          ) {
+            continue;
+          }
+
+          prices[coin.id] = {
+            symbol: coin.symbol.toUpperCase(),
+            name: coin.name,
+            price: coin.current_price as number,
+            change24h: Number.isFinite(
+              coin.price_change_percentage_24h
+            )
+              ? (coin.price_change_percentage_24h as number)
+              : 0,
+          };
+        }
+
+        return Response.json({ prices });
+      } catch (error) {
+        console.error(
+          "Crypto pricing error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+
+        return Response.json(
+          { error: "Unable to retrieve crypto prices" },
+          { status: 502 }
+        );
+      }
+    }
 
     // --------------------------------------------------
     // Create Plaid Link token
