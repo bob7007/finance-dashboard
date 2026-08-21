@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import "./App.css";
 
@@ -204,6 +204,19 @@ function App() {
   const [cryptoPricingError, setCryptoPricingError] =
     useState("");
 
+  const [cryptoPricesLoading, setCryptoPricesLoading] =
+    useState(false);
+
+  const cryptoPriceRequestInFlight = useRef(false);
+  const pendingCryptoPriceRefresh =
+    useRef<CryptoHolding[] | null>(null);
+  const refreshCryptoPricesRef = useRef<
+    ((holdings: CryptoHolding[], queueIfBusy?: boolean) => Promise<void>) |
+      null
+  >(null);
+  const cryptoPriceAbortController =
+    useRef<AbortController | null>(null);
+
   const [walletOrder, setWalletOrder] =
     useState<string[]>([]);
 
@@ -317,99 +330,58 @@ function App() {
       );
 
       setCryptoWallets(data.wallets);
-      setCryptoHoldings(
-        data.holdings.map(hydrateCryptoHolding)
-      );
+      const holdings =
+        data.holdings.map(hydrateCryptoHolding);
+
+      setCryptoHoldings(holdings);
       setWalletOrder(
         data.wallets.map((wallet) => wallet.id)
       );
       setCryptoOwnershipError("");
+      return holdings;
     } catch (error) {
       setCryptoOwnershipError(
         error instanceof Error
           ? error.message
           : "Unable to load saved crypto portfolio"
       );
+      return null;
     } finally {
       setCryptoOwnershipLoading(false);
     }
   }, []);
 
-  // --------------------------------------------------
-  // Get Plaid Link token
-  // --------------------------------------------------
-  useEffect(() => {
-    const initializePlaid = async () => {
-      try {
-        const response = await fetch(
-          "/api/plaid/link-token"
-        );
-
-        const data =
-          (await response.json()) as {
-            link_token?: string;
-            error_message?: string;
-          };
-
-        if (
-          !response.ok ||
-          !data.link_token
-        ) {
-          console.error(
-            "Unable to initialize Plaid:",
-            data
-          );
-
-          return;
+  const refreshCryptoPrices = useCallback(
+    async (
+      holdings: CryptoHolding[],
+      queueIfBusy = false
+    ) => {
+      if (cryptoPriceRequestInFlight.current) {
+        if (queueIfBusy) {
+          pendingCryptoPriceRefresh.current = holdings;
         }
-
-        setLinkToken(
-          data.link_token
-        );
-      } catch (err) {
-        console.error(
-          "Plaid initialization error:",
-          err
-        );
+        return;
       }
-    };
 
-    initializePlaid();
-  }, []);
-
-  // --------------------------------------------------
-  // Load portfolio on page load
-  // --------------------------------------------------
-  useEffect(() => {
-    loadPortfolio();
-  }, [loadPortfolio]);
-
-  useEffect(() => {
-    loadCryptoPortfolio();
-  }, [loadCryptoPortfolio]);
-
-  const requiredCoinGeckoIds = useMemo(
-    () =>
-      Array.from(
+      const requiredCoinGeckoIds = Array.from(
         new Set(
-          cryptoHoldings.map(
+          holdings.map(
             (holding) => holding.coinGeckoId
           )
         )
       )
         .sort()
-        .join(","),
-    [cryptoHoldings]
-  );
+        .join(",");
 
-  useEffect(() => {
-    if (!requiredCoinGeckoIds) {
-      return;
-    }
+      if (!requiredCoinGeckoIds) {
+        return;
+      }
 
-    const controller = new AbortController();
+      cryptoPriceRequestInFlight.current = true;
+      setCryptoPricesLoading(true);
+      const controller = new AbortController();
+      cryptoPriceAbortController.current = controller;
 
-    const loadCryptoPrices = async () => {
       try {
         const searchParams = new URLSearchParams({
           ids: requiredCoinGeckoIds,
@@ -476,20 +448,101 @@ function App() {
             ? error.message
             : "Unable to load crypto prices"
         );
+      } finally {
+        if (cryptoPriceAbortController.current === controller) {
+          cryptoPriceAbortController.current = null;
+          cryptoPriceRequestInFlight.current = false;
+          setCryptoPricesLoading(false);
+
+          const pendingHoldings =
+            pendingCryptoPriceRefresh.current;
+          pendingCryptoPriceRefresh.current = null;
+
+          if (pendingHoldings) {
+            void refreshCryptoPricesRef.current?.(
+              pendingHoldings,
+              true
+            );
+          }
+        }
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    refreshCryptoPricesRef.current = refreshCryptoPrices;
+
+    return () => {
+      refreshCryptoPricesRef.current = null;
+    };
+  }, [refreshCryptoPrices]);
+
+  // --------------------------------------------------
+  // Get Plaid Link token
+  // --------------------------------------------------
+  useEffect(() => {
+    const initializePlaid = async () => {
+      try {
+        const response = await fetch(
+          "/api/plaid/link-token"
+        );
+
+        const data =
+          (await response.json()) as {
+            link_token?: string;
+            error_message?: string;
+          };
+
+        if (
+          !response.ok ||
+          !data.link_token
+        ) {
+          console.error(
+            "Unable to initialize Plaid:",
+            data
+          );
+
+          return;
+        }
+
+        setLinkToken(
+          data.link_token
+        );
+      } catch (err) {
+        console.error(
+          "Plaid initialization error:",
+          err
+        );
       }
     };
 
-    void loadCryptoPrices();
-    const refreshInterval = window.setInterval(
-      () => void loadCryptoPrices(),
-      5 * 60 * 1000
-    );
+    initializePlaid();
+  }, []);
+
+  // --------------------------------------------------
+  // Load portfolio on page load
+  // --------------------------------------------------
+  useEffect(() => {
+    loadPortfolio();
+  }, [loadPortfolio]);
+
+  useEffect(() => {
+    const loadSavedCryptoPortfolio = async () => {
+      const holdings = await loadCryptoPortfolio();
+
+      if (holdings && holdings.length > 0) {
+        await refreshCryptoPrices(holdings, true);
+      }
+    };
+
+    void loadSavedCryptoPortfolio();
 
     return () => {
-      controller.abort();
-      window.clearInterval(refreshInterval);
+      pendingCryptoPriceRefresh.current = null;
+      cryptoPriceAbortController.current?.abort();
     };
-  }, [requiredCoinGeckoIds]);
+  }, [loadCryptoPortfolio, refreshCryptoPrices]);
 
   // --------------------------------------------------
   // Plaid Link
@@ -903,11 +956,20 @@ function App() {
           const importData = await readApiResponse<{
             holdings: StoredCryptoHolding[];
           }>(importResponse, "Unable to import holdings");
+          const addedHoldings =
+            importData.holdings.map(hydrateCryptoHolding);
 
           setCryptoHoldings((current) => [
             ...current,
-            ...importData.holdings.map(hydrateCryptoHolding),
+            ...addedHoldings,
           ]);
+
+          if (addedHoldings.length > 0) {
+            await refreshCryptoPrices([
+              ...cryptoHoldings,
+              ...addedHoldings,
+            ], true);
+          }
         }
       } else {
         const wallet: CryptoWallet = {
@@ -934,6 +996,8 @@ function App() {
           wallet: CryptoWallet;
           holdings: StoredCryptoHolding[];
         }>(response, "Unable to create wallet");
+        const addedHoldings =
+          data.holdings.map(hydrateCryptoHolding);
 
         setCryptoWallets((wallets) => [
           ...wallets,
@@ -945,8 +1009,15 @@ function App() {
         ]);
         setCryptoHoldings((current) => [
           ...current,
-          ...data.holdings.map(hydrateCryptoHolding),
+          ...addedHoldings,
         ]);
+
+        if (addedHoldings.length > 0) {
+          await refreshCryptoPrices([
+            ...cryptoHoldings,
+            ...addedHoldings,
+          ], true);
+        }
       }
 
       setCryptoOwnershipError("");
@@ -1620,8 +1691,30 @@ function App() {
                         : "POSITIONS"}
                     </p>
 
-                    <h2>Holdings</h2>
+                    <h2>
+                      {portfolioCategory === "crypto"
+                        ? "Crypto Holdings"
+                        : "Holdings"}
+                    </h2>
                   </div>
+
+                  {portfolioCategory === "crypto" && (
+                    <button
+                      className="add-wallet-button"
+                      type="button"
+                      disabled={
+                        cryptoPricesLoading ||
+                        cryptoHoldings.length === 0
+                      }
+                      onClick={() =>
+                        void refreshCryptoPrices(cryptoHoldings)
+                      }
+                    >
+                      {cryptoPricesLoading
+                        ? "Refreshing..."
+                        : "Refresh Prices"}
+                    </button>
+                  )}
                 </div>
 
                 {portfolioCategory === "crypto" &&

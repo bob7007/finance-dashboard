@@ -387,9 +387,14 @@ button {
   font-weight: 600;
 }
 
-.add-wallet-button:hover {
+.add-wallet-button:hover:not(:disabled) {
   background: #182131;
   border-color: #536176;
+}
+
+.add-wallet-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .wallet-modal-backdrop {
