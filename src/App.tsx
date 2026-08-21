@@ -350,6 +350,9 @@ function App() {
   const [holdingToRemoveId, setHoldingToRemoveId] =
     useState<string | null>(null);
 
+  const [isRemoveAllHoldingsOpen, setIsRemoveAllHoldingsOpen] =
+    useState(false);
+
   const [isAddWalletOpen, setIsAddWalletOpen] =
     useState(false);
 
@@ -646,6 +649,7 @@ function App() {
     setHoldingImportError("");
     setSelectedImportFileName("");
     setImportInputKey((key) => key + 1);
+    setIsRemoveAllHoldingsOpen(false);
   };
 
   const openAddWalletModal = () => {
@@ -791,6 +795,17 @@ function App() {
     if (isDuplicate) {
       setWalletValidationMessage(
         "A wallet with this name already exists."
+      );
+      return;
+    }
+
+    if (
+      editingWalletId &&
+      importedHoldings.length > 0 &&
+      editingWalletHoldings.length > 0
+    ) {
+      setWalletValidationMessage(
+        "Remove all existing holdings before importing a CSV."
       );
       return;
     }
@@ -957,6 +972,21 @@ function App() {
     }
 
     setHoldingToRemoveId(null);
+  };
+
+  const confirmRemoveAllHoldings = () => {
+    if (!editingWalletId) {
+      setIsRemoveAllHoldingsOpen(false);
+      return;
+    }
+
+    setCryptoHoldings((current) =>
+      current.filter(
+        (holding) => holding.walletId !== editingWalletId
+      )
+    );
+    setWalletValidationMessage("");
+    setIsRemoveAllHoldingsOpen(false);
   };
 
   const handleDeleteFromEdit = () => {
@@ -1858,37 +1888,49 @@ function App() {
                   </div>
 
                   {editingWalletHoldings.length > 0 ? (
-                    <div className="wallet-holdings-list">
-                      {editingWalletHoldings.map(
-                        (holding) => (
-                          <div
-                            className="wallet-holding-row"
-                            key={holding.id}
-                          >
-                            <div>
-                              <strong>{holding.symbol}</strong>
-                              <span>
-                                {formatQuantity(
-                                  holding.quantity
-                                )} {holding.symbol}
-                              </span>
-                            </div>
-
-                            <button
-                              className="wallet-remove-holding-button"
-                              type="button"
-                              onClick={() =>
-                                setHoldingToRemoveId(
-                                  holding.id
-                                )
-                              }
+                    <>
+                      <div className="wallet-holdings-list">
+                        {editingWalletHoldings.map(
+                          (holding) => (
+                            <div
+                              className="wallet-holding-row"
+                              key={holding.id}
                             >
-                              Remove
-                            </button>
-                          </div>
-                        )
-                      )}
-                    </div>
+                              <div>
+                                <strong>{holding.symbol}</strong>
+                                <span>
+                                  {formatQuantity(
+                                    holding.quantity
+                                  )} {holding.symbol}
+                                </span>
+                              </div>
+
+                              <button
+                                className="wallet-remove-holding-button"
+                                type="button"
+                                onClick={() =>
+                                  setHoldingToRemoveId(
+                                    holding.id
+                                  )
+                                }
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )
+                        )}
+                      </div>
+
+                      <button
+                        className="wallet-delete-action wallet-remove-all-action"
+                        type="button"
+                        onClick={() =>
+                          setIsRemoveAllHoldingsOpen(true)
+                        }
+                      >
+                        Remove All Holdings
+                      </button>
+                    </>
                   ) : (
                     <p className="wallet-delete-message">
                       No holdings in this wallet.
@@ -2011,13 +2053,15 @@ function App() {
                 Cancel
               </button>
 
-              <button
-                className="wallet-submit-button"
-                type="button"
-                onClick={confirmDeleteWallet}
-              >
-                Delete Wallet
-              </button>
+              {deleteWalletHoldingCount === 0 && (
+                <button
+                  className="wallet-submit-button"
+                  type="button"
+                  onClick={confirmDeleteWallet}
+                >
+                  Delete Wallet
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -2083,6 +2127,79 @@ function App() {
                 onClick={confirmHoldingRemoval}
               >
                 Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isRemoveAllHoldingsOpen &&
+        editingWallet &&
+        editingWalletHoldings.length > 0 && (
+        <div
+          className="wallet-modal-backdrop"
+          onClick={() =>
+            setIsRemoveAllHoldingsOpen(false)
+          }
+        >
+          <div
+            className="wallet-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-all-holdings-title"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
+            <div className="wallet-modal-header">
+              <div>
+                <p className="section-eyebrow">
+                  HOLDINGS
+                </p>
+
+                <h2 id="remove-all-holdings-title">
+                  Remove all holdings from {editingWallet.name}?
+                </h2>
+              </div>
+
+              <button
+                className="wallet-modal-close"
+                type="button"
+                aria-label="Close Remove All Holdings"
+                onClick={() =>
+                  setIsRemoveAllHoldingsOpen(false)
+                }
+              >
+                ×
+              </button>
+            </div>
+
+            <p className="wallet-delete-message">
+              This will remove all {editingWalletHoldings.length}{" "}
+              {editingWalletHoldings.length === 1
+                ? "holding"
+                : "holdings"} from this wallet.
+              <br />
+              This action cannot be undone.
+            </p>
+
+            <div className="wallet-modal-actions">
+              <button
+                className="wallet-cancel-button"
+                type="button"
+                onClick={() =>
+                  setIsRemoveAllHoldingsOpen(false)
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="wallet-delete-action"
+                type="button"
+                onClick={confirmRemoveAllHoldings}
+              >
+                Remove All
               </button>
             </div>
           </div>

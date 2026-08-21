@@ -686,6 +686,10 @@ button {
   background: rgba(241, 111, 123, 0.08);
 }
 
+.wallet-remove-all-action {
+  margin-top: 12px;
+}
+
 .wallet-modal-actions {
   display: flex;
   justify-content: flex-end;
