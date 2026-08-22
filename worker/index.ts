@@ -15,6 +15,22 @@ interface CoinGeckoMarket {
   price_change_percentage_24h: number | null;
 }
 
+interface CoinGeckoCoin {
+  id: string;
+  symbol: string;
+  name: string;
+}
+
+class CoinGeckoCatalogError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "CoinGeckoCatalogError";
+    this.status = status;
+  }
+}
+
 type CryptoWalletType =
   | "exchange"
   | "hardware_wallet"
@@ -264,6 +280,89 @@ function isWalletAssetConstraintError(error: unknown) {
   );
 }
 
+async function fetchCoinGeckoCatalog(env: Env) {
+  if (!env.COINGECKO_API_KEY) {
+    throw new CoinGeckoCatalogError(
+      "CoinGecko catalog validation is not configured",
+      500
+    );
+  }
+
+  let response: Response;
+
+  try {
+    response = await fetch(
+      "https://api.coingecko.com/api/v3/coins/list",
+      {
+        headers: {
+          "x-cg-demo-api-key": env.COINGECKO_API_KEY,
+        },
+      }
+    );
+  } catch {
+    throw new CoinGeckoCatalogError(
+      "Unable to load CoinGecko asset validation data",
+      502
+    );
+  }
+
+  if (!response.ok) {
+    throw new CoinGeckoCatalogError(
+      "Unable to load CoinGecko asset validation data",
+      502
+    );
+  }
+
+  const data = (await response.json()) as unknown;
+
+  if (!Array.isArray(data)) {
+    throw new CoinGeckoCatalogError(
+      "CoinGecko returned invalid asset validation data",
+      502
+    );
+  }
+
+  return data.flatMap<CoinGeckoCoin>((coin) => {
+    if (
+      !isRecord(coin) ||
+      typeof coin.id !== "string" ||
+      typeof coin.symbol !== "string" ||
+      typeof coin.name !== "string"
+    ) {
+      return [];
+    }
+
+    const id = coin.id.trim().toLowerCase();
+    const symbol = coin.symbol.trim().toLowerCase();
+    const name = coin.name.trim();
+
+    return id && symbol && name
+      ? [{ id, symbol, name }]
+      : [];
+  });
+}
+
+async function getInvalidCoinGeckoIds(
+  holdings: CryptoHoldingInput[],
+  env: Env
+) {
+  if (holdings.length === 0) {
+    return [];
+  }
+
+  const catalog = await fetchCoinGeckoCatalog(env);
+  const validIds = new Set(
+    catalog.map((coin) => coin.id)
+  );
+  const requestedIds = new Set(
+    holdings.map((holding) => holding.coinGeckoId)
+  );
+
+  return Array.from(requestedIds)
+    .filter((id) => !validIds.has(id))
+    .sort();
+}
+
 interface PlaidAccount {
   account_id: string;
   name: string;
@@ -492,6 +591,32 @@ export default {
         : undefined;
 
     // --------------------------------------------------
+    // Get the CoinGecko asset catalog used for CSV validation
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/crypto/coins" &&
+      request.method === "GET"
+    ) {
+      try {
+        const coins = await fetchCoinGeckoCatalog(env);
+        return Response.json({ coins });
+      } catch (error) {
+        if (error instanceof CoinGeckoCatalogError) {
+          return Response.json(
+            { error: error.message },
+            { status: error.status }
+          );
+        }
+
+        console.error("CoinGecko catalog error");
+        return Response.json(
+          { error: "Unable to load CoinGecko asset validation data" },
+          { status: 502 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
     // Get normalized crypto market prices
     // --------------------------------------------------
     if (
@@ -693,6 +818,19 @@ export default {
 
         const { wallet } = walletResult;
         const { holdings } = holdingResult;
+        const invalidCoinGeckoIds =
+          await getInvalidCoinGeckoIds(holdings, env);
+
+        if (invalidCoinGeckoIds.length > 0) {
+          return Response.json(
+            {
+              error:
+                `Invalid CoinGecko IDs: ${invalidCoinGeckoIds.join(", ")}`,
+            },
+            { status: 400 }
+          );
+        }
+
         const statements: D1PreparedStatement[] = [
           env.finance_dashboard_db
             .prepare(`
@@ -726,6 +864,13 @@ export default {
           { status: 201 }
         );
       } catch (error) {
+        if (error instanceof CoinGeckoCatalogError) {
+          return Response.json(
+            { error: error.message },
+            { status: error.status }
+          );
+        }
+
         if (isWalletAssetConstraintError(error)) {
           return Response.json(
             { error: "This wallet already contains that asset." },
@@ -786,6 +931,22 @@ export default {
           );
         }
 
+        const invalidCoinGeckoIds =
+          await getInvalidCoinGeckoIds(
+            holdingResult.holdings,
+            env
+          );
+
+        if (invalidCoinGeckoIds.length > 0) {
+          return Response.json(
+            {
+              error:
+                `Invalid CoinGecko IDs: ${invalidCoinGeckoIds.join(", ")}`,
+            },
+            { status: 400 }
+          );
+        }
+
         const wallet = await env.finance_dashboard_db
           .prepare(`
             SELECT id
@@ -830,6 +991,13 @@ export default {
           { status: 201 }
         );
       } catch (error) {
+        if (error instanceof CoinGeckoCatalogError) {
+          return Response.json(
+            { error: error.message },
+            { status: error.status }
+          );
+        }
+
         if (isWalletAssetConstraintError(error)) {
           return Response.json(
             { error: "This wallet already contains that asset." },

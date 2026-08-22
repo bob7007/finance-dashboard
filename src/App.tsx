@@ -79,6 +79,16 @@ interface CryptoPriceResponse {
   >;
 }
 
+interface CoinGeckoCoin {
+  id: string;
+  symbol: string;
+  name: string;
+}
+
+interface CoinGeckoCatalogResponse {
+  coins: CoinGeckoCoin[];
+}
+
 interface StoredCryptoHolding {
   id: string;
   walletId: string;
@@ -207,6 +217,31 @@ function App() {
   const [cryptoPricesLoading, setCryptoPricesLoading] =
     useState(false);
 
+  const [coinGeckoCoins, setCoinGeckoCoins] =
+    useState<CoinGeckoCoin[]>([]);
+
+  const [coinGeckoCatalogLoaded, setCoinGeckoCatalogLoaded] =
+    useState(false);
+
+  const [coinGeckoCatalogLoading, setCoinGeckoCatalogLoading] =
+    useState(false);
+
+  const [coinGeckoCatalogError, setCoinGeckoCatalogError] =
+    useState("");
+
+  const coinGeckoCatalogRequest =
+    useRef<Promise<CoinGeckoCoin[]> | null>(null);
+
+  const validCoinGeckoIds = useMemo(
+    () =>
+      new Set(
+        coinGeckoCoins.map((coin) =>
+          coin.id.trim().toLowerCase()
+        )
+      ),
+    [coinGeckoCoins]
+  );
+
   const cryptoPriceRequestInFlight = useRef(false);
   const pendingCryptoPriceRefresh =
     useRef<CryptoHolding[] | null>(null);
@@ -272,6 +307,69 @@ function App() {
 
   const [walletSubmitPending, setWalletSubmitPending] =
     useState(false);
+
+  const loadCoinGeckoCatalog = useCallback(async () => {
+    if (coinGeckoCatalogLoaded) {
+      return coinGeckoCoins;
+    }
+
+    if (coinGeckoCatalogRequest.current) {
+      return coinGeckoCatalogRequest.current;
+    }
+
+    setCoinGeckoCatalogLoading(true);
+    setCoinGeckoCatalogError("");
+
+    const catalogRequest = (async () => {
+      const response = await fetch("/api/crypto/coins");
+      const data = await readApiResponse<CoinGeckoCatalogResponse>(
+        response,
+        "Unable to load CoinGecko asset validation data"
+      );
+
+      if (!Array.isArray(data.coins)) {
+        throw new Error(
+          "Unable to load CoinGecko asset validation data"
+        );
+      }
+
+      const coins = data.coins
+        .filter(
+          (coin) =>
+            typeof coin.id === "string" &&
+            typeof coin.symbol === "string" &&
+            typeof coin.name === "string"
+        )
+        .map((coin) => ({
+          id: coin.id.trim().toLowerCase(),
+          symbol: coin.symbol.trim().toLowerCase(),
+          name: coin.name.trim(),
+        }))
+        .filter(
+          (coin) => coin.id && coin.symbol && coin.name
+        );
+
+      setCoinGeckoCoins(coins);
+      setCoinGeckoCatalogLoaded(true);
+      return coins;
+    })();
+
+    coinGeckoCatalogRequest.current = catalogRequest;
+
+    try {
+      return await catalogRequest;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to load CoinGecko asset validation data";
+      setCoinGeckoCatalogError(message);
+      throw error;
+    } finally {
+      coinGeckoCatalogRequest.current = null;
+      setCoinGeckoCatalogLoading(false);
+    }
+  }, [coinGeckoCatalogLoaded, coinGeckoCoins]);
 
   // --------------------------------------------------
   // Load normalized portfolio
@@ -725,6 +823,7 @@ function App() {
   const openAddWalletModal = () => {
     resetWalletForm();
     setIsAddWalletOpen(true);
+    void loadCoinGeckoCatalog().catch(() => undefined);
   };
 
   const openEditWalletModal = (
@@ -740,6 +839,14 @@ function App() {
     setImportInputKey((key) => key + 1);
     setOpenWalletMenuId(null);
     setIsAddWalletOpen(true);
+
+    const walletHasHoldings = cryptoHoldings.some(
+      (holding) => holding.walletId === wallet.id
+    );
+
+    if (!walletHasHoldings) {
+      void loadCoinGeckoCatalog().catch(() => undefined);
+    }
   };
 
   const handleHoldingCsvChange = async (
@@ -756,6 +863,16 @@ function App() {
     }
 
     try {
+      const catalog = coinGeckoCatalogLoaded
+        ? coinGeckoCoins
+        : await loadCoinGeckoCatalog();
+      const catalogIds = coinGeckoCatalogLoaded
+        ? validCoinGeckoIds
+        : new Set(
+            catalog.map((coin) =>
+              coin.id.trim().toLowerCase()
+            )
+          );
       const lines = (await file.text())
         .replace(/^\uFEFF/, "")
         .split(/\r?\n/)
@@ -825,6 +942,13 @@ function App() {
           throw new Error(
             `Row ${rowNumber} contains duplicate CoinGecko ID "${coinGeckoId}". ` +
               "Each asset may appear only once per wallet."
+          );
+        }
+
+        if (!catalogIds.has(coinGeckoId)) {
+          throw new Error(
+            `Row ${rowNumber} contains unknown CoinGecko ID "${coinGeckoId}". ` +
+              "Verify the asset's CoinGecko ID and try again."
           );
         }
 
@@ -2086,8 +2210,23 @@ function App() {
                       type="file"
                       accept=".csv,text/csv"
                       onChange={handleHoldingCsvChange}
+                      disabled={coinGeckoCatalogLoading}
                     />
                   </label>
+
+                  {coinGeckoCatalogLoading && (
+                    <p className="wallet-import-file-name">
+                      Loading CoinGecko asset catalog...
+                    </p>
+                  )}
+
+                  {coinGeckoCatalogError &&
+                    !coinGeckoCatalogLoading && (
+                      <p className="wallet-validation-message">
+                        {coinGeckoCatalogError}. Try again before importing
+                        holdings. You can still save an empty wallet.
+                      </p>
+                    )}
 
                   {selectedImportFileName && (
                     <p className="wallet-import-file-name">
@@ -2237,7 +2376,12 @@ function App() {
                 <button
                   className="wallet-submit-button"
                   type="submit"
-                  disabled={walletSubmitPending}
+                  disabled={
+                    walletSubmitPending ||
+                    (selectedImportFileName !== "" &&
+                      (!coinGeckoCatalogLoaded ||
+                        coinGeckoCatalogLoading))
+                  }
                 >
                   {walletSubmitPending
                     ? "Saving..."
