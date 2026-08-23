@@ -44,14 +44,19 @@ interface PortfolioResponse {
   holdings: PortfolioHolding[];
 }
 
-type BrokeragePriceSource = "finnhub" | "plaid";
+type BrokeragePriceSource = "alpaca" | "finnhub" | "plaid";
+
+interface ExternalBrokerageQuote {
+  price: number;
+  source: Exclude<BrokeragePriceSource, "plaid">;
+}
 
 interface DisplayedPortfolioHolding extends PortfolioHolding {
   priceSource: BrokeragePriceSource;
 }
 
 interface BrokerageQuoteResponse {
-  quotes: Record<string, { price: number }>;
+  quotes: Record<string, ExternalBrokerageQuote>;
 }
 
 interface CryptoHolding {
@@ -238,7 +243,7 @@ function App() {
     useState<string | null>(null);
 
   const [brokerageQuotes, setBrokerageQuotes] =
-    useState<Record<string, number>>({});
+    useState<Record<string, ExternalBrokerageQuote>>({});
 
   const [brokeragePricesLoading, setBrokeragePricesLoading] =
     useState(false);
@@ -516,20 +521,22 @@ function App() {
         }
 
         const requestedSymbols = new Set(symbols);
-        const nextQuotes: Record<string, number> = {};
+        const nextQuotes: Record<string, ExternalBrokerageQuote> = {};
 
         for (const [rawSymbol, quote] of Object.entries(data.quotes)) {
           const symbol = normalizeBrokerageTicker(rawSymbol);
           const price = quote?.price;
+          const source = quote?.source;
 
           if (
             symbol &&
             requestedSymbols.has(symbol) &&
             typeof price === "number" &&
             Number.isFinite(price) &&
-            price > 0
+            price > 0 &&
+            (source === "alpaca" || source === "finnhub")
           ) {
-            nextQuotes[symbol] = price;
+            nextQuotes[symbol] = { price, source };
           }
         }
 
@@ -910,15 +917,15 @@ function App() {
     () =>
       (portfolio?.holdings ?? []).map((holding) => {
         const ticker = normalizeBrokerageTicker(holding.ticker);
-        const finnhubPrice = ticker
+        const externalQuote = ticker
           ? brokerageQuotes[ticker]
           : undefined;
-        const usesFinnhub =
-          typeof finnhubPrice === "number" &&
-          Number.isFinite(finnhubPrice) &&
-          finnhubPrice > 0;
-        const price = usesFinnhub
-          ? finnhubPrice
+        const usesExternalPrice =
+          typeof externalQuote?.price === "number" &&
+          Number.isFinite(externalQuote.price) &&
+          externalQuote.price > 0;
+        const price = usesExternalPrice
+          ? externalQuote.price
           : holding.price;
         const value =
           price !== null
@@ -941,7 +948,9 @@ function App() {
           value,
           gain,
           gainPercent,
-          priceSource: usesFinnhub ? "finnhub" : "plaid",
+          priceSource: usesExternalPrice && externalQuote
+            ? externalQuote.source
+            : "plaid",
         };
       }),
     [brokerageQuotes, portfolio]
@@ -2097,7 +2106,7 @@ function App() {
                 {portfolioCategory === "brokerage" &&
                   brokeragePricingError && (
                     <p className="wallet-validation-message">
-                      Finnhub pricing unavailable; using Plaid prices.{" "}
+                      Market pricing unavailable; using Plaid prices.{" "}
                       {brokeragePricingError}
                     </p>
                   )}
@@ -2218,9 +2227,11 @@ function App() {
                                   <span
                                     className={`price-source-badge ${holding.priceSource}`}
                                   >
-                                    {holding.priceSource === "finnhub"
-                                      ? "Finnhub"
-                                      : "Plaid"}
+                                    {holding.priceSource === "alpaca"
+                                      ? "Alpaca"
+                                      : holding.priceSource === "finnhub"
+                                        ? "Finnhub"
+                                        : "Plaid"}
                                   </span>
                                 </div>
                               </td>

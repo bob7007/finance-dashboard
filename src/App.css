@@ -1040,6 +1040,11 @@ button {
   color: #54c38d;
 }
 
+.price-source-badge.alpaca {
+  border-color: rgba(105, 151, 255, 0.5);
+  color: #86aaff;
+}
+
 .ticker {
   font-family:
     "SFMono-Regular",

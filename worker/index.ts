@@ -1,6 +1,8 @@
 interface Env {
   COINGECKO_API_KEY: string;
   FINNHUB_API_KEY: string;
+  ALPACA_API_KEY: string;
+  ALPACA_API_SECRET: string;
   PLAID_CLIENT_ID: string;
   PLAID_SECRET: string;
   PLAID_ENV: string;
@@ -21,6 +23,13 @@ interface CoinGeckoCoin {
   id: string;
   symbol: string;
   name: string;
+}
+
+type BrokerageQuoteSource = "alpaca" | "finnhub";
+
+interface ExternalBrokerageQuote {
+  price: number;
+  source: BrokerageQuoteSource;
 }
 
 const COINGECKO_CATALOG_CACHE_KEY = "coingecko:catalog";
@@ -440,6 +449,125 @@ async function getInvalidCoinGeckoIds(
     .sort();
 }
 
+async function fetchAlpacaBrokerageQuotes(
+  symbols: string[],
+  env: Env
+) {
+  const quotes: Record<string, ExternalBrokerageQuote> = {};
+
+  if (!env.ALPACA_API_KEY || !env.ALPACA_API_SECRET) {
+    return { quotes, requestSucceeded: false };
+  }
+
+  try {
+    const tradesUrl = new URL(
+      "https://data.alpaca.markets/v2/stocks/trades/latest"
+    );
+    tradesUrl.searchParams.set("symbols", symbols.join(","));
+    tradesUrl.searchParams.set("feed", "iex");
+
+    const response = await fetch(tradesUrl, {
+      headers: {
+        "APCA-API-KEY-ID": env.ALPACA_API_KEY,
+        "APCA-API-SECRET-KEY": env.ALPACA_API_SECRET,
+      },
+    });
+
+    if (!response.ok) {
+      return { quotes, requestSucceeded: false };
+    }
+
+    const data = (await response.json()) as unknown;
+
+    if (!isRecord(data) || !isRecord(data.trades)) {
+      return { quotes, requestSucceeded: false };
+    }
+
+    const requestedSymbols = new Set(symbols);
+
+    for (const [rawSymbol, trade] of Object.entries(data.trades)) {
+      const symbol = rawSymbol.trim().toUpperCase();
+      const price = isRecord(trade) ? trade.p : undefined;
+
+      if (
+        requestedSymbols.has(symbol) &&
+        typeof price === "number" &&
+        Number.isFinite(price) &&
+        price > 0
+      ) {
+        quotes[symbol] = { price, source: "alpaca" };
+      }
+    }
+
+    return { quotes, requestSucceeded: true };
+  } catch {
+    return { quotes, requestSucceeded: false };
+  }
+}
+
+async function fetchFinnhubBrokerageQuotes(
+  symbols: string[],
+  env: Env
+) {
+  const quotes: Record<string, ExternalBrokerageQuote> = {};
+
+  if (symbols.length === 0) {
+    return { quotes, requestSucceeded: true };
+  }
+
+  if (!env.FINNHUB_API_KEY) {
+    return { quotes, requestSucceeded: false };
+  }
+
+  const results = await Promise.all(
+    symbols.map(async (symbol) => {
+      try {
+        const quoteUrl = new URL(
+          "https://finnhub.io/api/v1/quote"
+        );
+        quoteUrl.searchParams.set("symbol", symbol);
+
+        const response = await fetch(quoteUrl, {
+          headers: {
+            "X-Finnhub-Token": env.FINNHUB_API_KEY,
+          },
+        });
+
+        if (!response.ok) {
+          return { symbol, requestSucceeded: false };
+        }
+
+        const quote = (await response.json()) as unknown;
+        const price = isRecord(quote) ? quote.c : undefined;
+
+        return typeof price === "number" &&
+          Number.isFinite(price) &&
+          price > 0
+          ? { symbol, price, requestSucceeded: true }
+          : { symbol, requestSucceeded: true };
+      } catch {
+        return { symbol, requestSucceeded: false };
+      }
+    })
+  );
+
+  for (const result of results) {
+    if ("price" in result && result.price !== undefined) {
+      quotes[result.symbol] = {
+        price: result.price,
+        source: "finnhub",
+      };
+    }
+  }
+
+  return {
+    quotes,
+    requestSucceeded: results.some(
+      (result) => result.requestSucceeded
+    ),
+  };
+}
+
 interface PlaidAccount {
   account_id: string;
   name: string;
@@ -668,7 +796,7 @@ export default {
         : undefined;
 
     // --------------------------------------------------
-    // Get current brokerage quotes from Finnhub
+    // Get current brokerage quotes from Alpaca, Finnhub fallback
     // --------------------------------------------------
     if (
       url.pathname === "/api/brokerage/quotes" &&
@@ -703,59 +831,32 @@ export default {
         );
       }
 
-      if (!env.FINNHUB_API_KEY) {
-        return Response.json(
-          { error: "Brokerage pricing is not configured" },
-          { status: 500 }
-        );
-      }
-
-      const results = await Promise.all(
-        symbols.map(async (symbol) => {
-          try {
-            const quoteUrl = new URL(
-              "https://finnhub.io/api/v1/quote"
-            );
-            quoteUrl.searchParams.set("symbol", symbol);
-
-            const response = await fetch(quoteUrl, {
-              headers: {
-                "X-Finnhub-Token": env.FINNHUB_API_KEY,
-              },
-            });
-
-            if (!response.ok) {
-              return { symbol, upstreamFailed: true };
-            }
-
-            const quote = (await response.json()) as unknown;
-            const price = isRecord(quote) ? quote.c : undefined;
-
-            return typeof price === "number" &&
-              Number.isFinite(price) &&
-              price > 0
-              ? { symbol, price, upstreamFailed: false }
-              : { symbol, upstreamFailed: false };
-          } catch {
-            return { symbol, upstreamFailed: true };
-          }
-        })
+      const alpacaResult = await fetchAlpacaBrokerageQuotes(
+        symbols,
+        env
+      );
+      const unresolvedSymbols = symbols.filter(
+        (symbol) => !alpacaResult.quotes[symbol]
+      );
+      const finnhubResult = await fetchFinnhubBrokerageQuotes(
+        unresolvedSymbols,
+        env
       );
 
-      if (results.every((result) => result.upstreamFailed)) {
+      if (
+        !alpacaResult.requestSucceeded &&
+        !finnhubResult.requestSucceeded
+      ) {
         return Response.json(
           { error: "Unable to retrieve brokerage prices" },
           { status: 502 }
         );
       }
 
-      const quotes: Record<string, { price: number }> = {};
-
-      for (const result of results) {
-        if ("price" in result && result.price !== undefined) {
-          quotes[result.symbol] = { price: result.price };
-        }
-      }
+      const quotes = {
+        ...alpacaResult.quotes,
+        ...finnhubResult.quotes,
+      };
 
       return Response.json({ quotes });
     }
