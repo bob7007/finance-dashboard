@@ -44,6 +44,16 @@ interface PortfolioResponse {
   holdings: PortfolioHolding[];
 }
 
+type BrokeragePriceSource = "finnhub" | "plaid";
+
+interface DisplayedPortfolioHolding extends PortfolioHolding {
+  priceSource: BrokeragePriceSource;
+}
+
+interface BrokerageQuoteResponse {
+  quotes: Record<string, { price: number }>;
+}
+
 interface CryptoHolding {
   id: string;
   coinGeckoId: string;
@@ -208,6 +218,15 @@ function normalizeCoinGeckoCatalogResponse(
   return coins;
 }
 
+function normalizeBrokerageTicker(ticker: string) {
+  const normalized = ticker.trim().toUpperCase();
+
+  return normalized !== "CASH" &&
+    /^[A-Z0-9][A-Z0-9.-]{0,19}$/.test(normalized)
+    ? normalized
+    : null;
+}
+
 function App() {
   const [portfolio, setPortfolio] =
     useState<PortfolioResponse | null>(null);
@@ -217,6 +236,17 @@ function App() {
 
   const [error, setError] =
     useState<string | null>(null);
+
+  const [brokerageQuotes, setBrokerageQuotes] =
+    useState<Record<string, number>>({});
+
+  const [brokeragePricesLoading, setBrokeragePricesLoading] =
+    useState(false);
+
+  const [brokeragePricingError, setBrokeragePricingError] =
+    useState("");
+
+  const brokeragePriceRequestInFlight = useRef(false);
 
   const [linkToken, setLinkToken] =
     useState<string | null>(null);
@@ -438,6 +468,88 @@ function App() {
     }
   };
 
+  const refreshBrokeragePrices = useCallback(
+    async (holdings: PortfolioHolding[]) => {
+      if (brokeragePriceRequestInFlight.current) {
+        return;
+      }
+
+      const symbols = Array.from(
+        new Set(
+          holdings
+            .map((holding) =>
+              normalizeBrokerageTicker(holding.ticker)
+            )
+            .filter(
+              (symbol): symbol is string => symbol !== null
+            )
+        )
+      ).sort();
+
+      if (symbols.length === 0) {
+        setBrokerageQuotes({});
+        setBrokeragePricingError("");
+        return;
+      }
+
+      brokeragePriceRequestInFlight.current = true;
+      setBrokeragePricesLoading(true);
+
+      try {
+        const searchParams = new URLSearchParams({
+          symbols: symbols.join(","),
+        });
+        const response = await fetch(
+          `/api/brokerage/quotes?${searchParams.toString()}`
+        );
+        const data = await readApiResponse<BrokerageQuoteResponse>(
+          response,
+          "Unable to load brokerage prices"
+        );
+
+        if (
+          typeof data.quotes !== "object" ||
+          data.quotes === null ||
+          Array.isArray(data.quotes)
+        ) {
+          throw new Error("Unable to load brokerage prices");
+        }
+
+        const requestedSymbols = new Set(symbols);
+        const nextQuotes: Record<string, number> = {};
+
+        for (const [rawSymbol, quote] of Object.entries(data.quotes)) {
+          const symbol = normalizeBrokerageTicker(rawSymbol);
+          const price = quote?.price;
+
+          if (
+            symbol &&
+            requestedSymbols.has(symbol) &&
+            typeof price === "number" &&
+            Number.isFinite(price) &&
+            price > 0
+          ) {
+            nextQuotes[symbol] = price;
+          }
+        }
+
+        setBrokerageQuotes(nextQuotes);
+        setBrokeragePricingError("");
+      } catch (error) {
+        setBrokerageQuotes({});
+        setBrokeragePricingError(
+          error instanceof Error
+            ? error.message
+            : "Unable to load brokerage prices"
+        );
+      } finally {
+        brokeragePriceRequestInFlight.current = false;
+        setBrokeragePricesLoading(false);
+      }
+    },
+    []
+  );
+
   // --------------------------------------------------
   // Load normalized portfolio
   // --------------------------------------------------
@@ -468,6 +580,7 @@ function App() {
       }
 
       setPortfolio(data);
+      void refreshBrokeragePrices(data.holdings);
     } catch (err) {
       console.error(
         "Portfolio load error:",
@@ -482,7 +595,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshBrokeragePrices]);
 
   const loadCryptoPortfolio = useCallback(async () => {
     try {
@@ -791,14 +904,65 @@ function App() {
   const positionCount =
     portfolio?.holdings.length ?? 0;
 
+  const displayedPortfolioHoldings = useMemo<
+    DisplayedPortfolioHolding[]
+  >(
+    () =>
+      (portfolio?.holdings ?? []).map((holding) => {
+        const ticker = normalizeBrokerageTicker(holding.ticker);
+        const finnhubPrice = ticker
+          ? brokerageQuotes[ticker]
+          : undefined;
+        const usesFinnhub =
+          typeof finnhubPrice === "number" &&
+          Number.isFinite(finnhubPrice) &&
+          finnhubPrice > 0;
+        const price = usesFinnhub
+          ? finnhubPrice
+          : holding.price;
+        const value =
+          price !== null
+            ? holding.quantity * price
+            : holding.value;
+        const gain =
+          value !== null && holding.costBasis !== null
+            ? value - holding.costBasis
+            : null;
+        const gainPercent =
+          gain !== null &&
+          holding.costBasis !== null &&
+          holding.costBasis !== 0
+            ? (gain / holding.costBasis) * 100
+            : null;
+
+        return {
+          ...holding,
+          price,
+          value,
+          gain,
+          gainPercent,
+          priceSource: usesFinnhub ? "finnhub" : "plaid",
+        };
+      }),
+    [brokerageQuotes, portfolio]
+  );
+
   const filteredHoldings =
     selectedAccountKey === null
-      ? portfolio?.holdings ?? []
-      : portfolio?.holdings.filter(
+      ? displayedPortfolioHoldings
+      : displayedPortfolioHoldings.filter(
           (holding) =>
             `${holding.itemId}:${holding.accountId}` ===
             selectedAccountKey
-        ) ?? [];
+        );
+
+  const brokerageTotalValue =
+    displayedPortfolioHoldings.length > 0
+      ? displayedPortfolioHoldings.reduce(
+          (total, holding) => total + (holding.value ?? 0),
+          0
+        )
+      : portfolio?.totalValue ?? 0;
 
   const cryptoTotalValue =
     cryptoHoldings.reduce(
@@ -1594,7 +1758,7 @@ function App() {
 
                     <strong className="summary-value">
                       {formatCurrency(
-                        portfolio.totalValue
+                        brokerageTotalValue
                       )}
                     </strong>
                   </div>
@@ -1906,7 +2070,37 @@ function App() {
                         : "Refresh Prices"}
                     </button>
                   )}
+
+                  {portfolioCategory === "brokerage" && (
+                    <button
+                      className="add-wallet-button"
+                      type="button"
+                      disabled={
+                        brokeragePricesLoading ||
+                        (portfolio?.holdings.length ?? 0) === 0
+                      }
+                      onClick={() => {
+                        if (portfolio) {
+                          void refreshBrokeragePrices(
+                            portfolio.holdings
+                          );
+                        }
+                      }}
+                    >
+                      {brokeragePricesLoading
+                        ? "Refreshing..."
+                        : "Refresh Prices"}
+                    </button>
+                  )}
                 </div>
+
+                {portfolioCategory === "brokerage" &&
+                  brokeragePricingError && (
+                    <p className="wallet-validation-message">
+                      Finnhub pricing unavailable; using Plaid prices.{" "}
+                      {brokeragePricingError}
+                    </p>
+                  )}
 
                 {portfolioCategory === "crypto" &&
                   cryptoOwnershipLoading && (
@@ -2013,11 +2207,22 @@ function App() {
                               </td>
 
                               <td className="numeric">
-                                {formatCurrency(
-                                  holding.price,
-                                  holding.currency ??
-                                    "USD"
-                                )}
+                                <div className="brokerage-price-display">
+                                  <span>
+                                    {formatCurrency(
+                                      holding.price,
+                                      holding.currency ??
+                                        "USD"
+                                    )}
+                                  </span>
+                                  <span
+                                    className={`price-source-badge ${holding.priceSource}`}
+                                  >
+                                    {holding.priceSource === "finnhub"
+                                      ? "Finnhub"
+                                      : "Plaid"}
+                                  </span>
+                                </div>
                               </td>
 
                               <td className="numeric value-cell">

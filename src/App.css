@@ -1014,6 +1014,32 @@ button {
   white-space: nowrap;
 }
 
+.brokerage-price-display {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.price-source-badge {
+  padding: 2px 5px;
+
+  border: 1px solid #2b3544;
+  border-radius: 999px;
+
+  color: #748196;
+
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.price-source-badge.finnhub {
+  border-color: rgba(84, 195, 141, 0.45);
+  color: #54c38d;
+}
+
 .ticker {
   font-family:
     "SFMono-Regular",

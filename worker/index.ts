@@ -668,6 +668,99 @@ export default {
         : undefined;
 
     // --------------------------------------------------
+    // Get current brokerage quotes from Finnhub
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/brokerage/quotes" &&
+      request.method === "GET"
+    ) {
+      const requestedSymbols =
+        url.searchParams
+          .get("symbols")
+          ?.split(",")
+          .map((symbol) => symbol.trim().toUpperCase())
+          .filter(Boolean) ?? [];
+      const symbols = Array.from(new Set(requestedSymbols));
+
+      if (symbols.length === 0) {
+        return Response.json(
+          { error: "At least one ticker symbol is required" },
+          { status: 400 }
+        );
+      }
+
+      if (
+        symbols.length > 100 ||
+        symbols.some(
+          (symbol) =>
+            symbol.length > 20 ||
+            !/^[A-Z0-9][A-Z0-9.-]*$/.test(symbol)
+        )
+      ) {
+        return Response.json(
+          { error: "One or more ticker symbols are invalid" },
+          { status: 400 }
+        );
+      }
+
+      if (!env.FINNHUB_API_KEY) {
+        return Response.json(
+          { error: "Brokerage pricing is not configured" },
+          { status: 500 }
+        );
+      }
+
+      const results = await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            const quoteUrl = new URL(
+              "https://finnhub.io/api/v1/quote"
+            );
+            quoteUrl.searchParams.set("symbol", symbol);
+
+            const response = await fetch(quoteUrl, {
+              headers: {
+                "X-Finnhub-Token": env.FINNHUB_API_KEY,
+              },
+            });
+
+            if (!response.ok) {
+              return { symbol, upstreamFailed: true };
+            }
+
+            const quote = (await response.json()) as unknown;
+            const price = isRecord(quote) ? quote.c : undefined;
+
+            return typeof price === "number" &&
+              Number.isFinite(price) &&
+              price > 0
+              ? { symbol, price, upstreamFailed: false }
+              : { symbol, upstreamFailed: false };
+          } catch {
+            return { symbol, upstreamFailed: true };
+          }
+        })
+      );
+
+      if (results.every((result) => result.upstreamFailed)) {
+        return Response.json(
+          { error: "Unable to retrieve brokerage prices" },
+          { status: 502 }
+        );
+      }
+
+      const quotes: Record<string, { price: number }> = {};
+
+      for (const result of results) {
+        if ("price" in result && result.price !== undefined) {
+          quotes[result.symbol] = { price: result.price };
+        }
+      }
+
+      return Response.json({ quotes });
+    }
+
+    // --------------------------------------------------
     // Get the CoinGecko asset catalog used for CSV validation
     // --------------------------------------------------
     if (
