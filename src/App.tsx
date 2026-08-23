@@ -174,6 +174,40 @@ async function readApiResponse<T extends object>(
   return data as T;
 }
 
+function normalizeCoinGeckoCatalogResponse(
+  data: CoinGeckoCatalogResponse
+) {
+  if (!Array.isArray(data.coins)) {
+    throw new Error(
+      "Unable to load CoinGecko asset validation data"
+    );
+  }
+
+  const coins = data.coins
+    .filter(
+      (coin) =>
+        typeof coin.id === "string" &&
+        typeof coin.symbol === "string" &&
+        typeof coin.name === "string"
+    )
+    .map((coin) => ({
+      id: coin.id.trim().toLowerCase(),
+      symbol: coin.symbol.trim().toLowerCase(),
+      name: coin.name.trim(),
+    }))
+    .filter(
+      (coin) => coin.id && coin.symbol && coin.name
+    );
+
+  if (coins.length === 0) {
+    throw new Error(
+      "Unable to load CoinGecko asset validation data"
+    );
+  }
+
+  return coins;
+}
+
 function App() {
   const [portfolio, setPortfolio] =
     useState<PortfolioResponse | null>(null);
@@ -224,6 +258,9 @@ function App() {
     useState(false);
 
   const [coinGeckoCatalogLoading, setCoinGeckoCatalogLoading] =
+    useState(false);
+
+  const [coinGeckoCatalogRefreshing, setCoinGeckoCatalogRefreshing] =
     useState(false);
 
   const [coinGeckoCatalogError, setCoinGeckoCatalogError] =
@@ -326,28 +363,7 @@ function App() {
         response,
         "Unable to load CoinGecko asset validation data"
       );
-
-      if (!Array.isArray(data.coins)) {
-        throw new Error(
-          "Unable to load CoinGecko asset validation data"
-        );
-      }
-
-      const coins = data.coins
-        .filter(
-          (coin) =>
-            typeof coin.id === "string" &&
-            typeof coin.symbol === "string" &&
-            typeof coin.name === "string"
-        )
-        .map((coin) => ({
-          id: coin.id.trim().toLowerCase(),
-          symbol: coin.symbol.trim().toLowerCase(),
-          name: coin.name.trim(),
-        }))
-        .filter(
-          (coin) => coin.id && coin.symbol && coin.name
-        );
+      const coins = normalizeCoinGeckoCatalogResponse(data);
 
       setCoinGeckoCoins(coins);
       setCoinGeckoCatalogLoaded(true);
@@ -370,6 +386,57 @@ function App() {
       setCoinGeckoCatalogLoading(false);
     }
   }, [coinGeckoCatalogLoaded, coinGeckoCoins]);
+
+  const refreshCoinGeckoCatalog = async () => {
+    if (
+      coinGeckoCatalogLoading ||
+      coinGeckoCatalogRefreshing
+    ) {
+      return;
+    }
+
+    setCoinGeckoCatalogRefreshing(true);
+    setCoinGeckoCatalogError("");
+
+    try {
+      const response = await fetch(
+        "/api/crypto/coins/refresh",
+        { method: "POST" }
+      );
+      const data = await readApiResponse<CoinGeckoCatalogResponse>(
+        response,
+        "Unable to refresh CoinGecko asset validation data"
+      );
+      const coins = normalizeCoinGeckoCatalogResponse(data);
+      const refreshedIds = new Set(
+        coins.map((coin) => coin.id)
+      );
+      const invalidImportedHolding = importedHoldings.find(
+        (holding) => !refreshedIds.has(holding.coinGeckoId)
+      );
+
+      setCoinGeckoCoins(coins);
+      setCoinGeckoCatalogLoaded(true);
+
+      if (invalidImportedHolding) {
+        setImportedHoldings([]);
+        setSelectedImportFileName("");
+        setImportInputKey((key) => key + 1);
+        setHoldingImportError(
+          `The selected CSV contains unknown CoinGecko ID "${invalidImportedHolding.coinGeckoId}". ` +
+            "Choose the file again after correcting it."
+        );
+      }
+    } catch (error) {
+      setCoinGeckoCatalogError(
+        error instanceof Error
+          ? error.message
+          : "Unable to refresh CoinGecko asset validation data"
+      );
+    } finally {
+      setCoinGeckoCatalogRefreshing(false);
+    }
+  };
 
   // --------------------------------------------------
   // Load normalized portfolio
@@ -2203,16 +2270,44 @@ function App() {
                     <span>Optional CSV file</span>
                   </div>
 
-                  <label className="wallet-file-input">
-                    <span>Choose CSV</span>
-                    <input
-                      key={importInputKey}
-                      type="file"
-                      accept=".csv,text/csv"
-                      onChange={handleHoldingCsvChange}
-                      disabled={coinGeckoCatalogLoading}
-                    />
-                  </label>
+                  <div className="wallet-import-actions">
+                    <label
+                      className={`wallet-file-input${
+                        coinGeckoCatalogLoading ||
+                        coinGeckoCatalogRefreshing
+                          ? " disabled"
+                          : ""
+                      }`}
+                    >
+                      <span>Choose CSV</span>
+                      <input
+                        key={importInputKey}
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={handleHoldingCsvChange}
+                        disabled={
+                          coinGeckoCatalogLoading ||
+                          coinGeckoCatalogRefreshing
+                        }
+                      />
+                    </label>
+
+                    <button
+                      className="wallet-catalog-refresh-button"
+                      type="button"
+                      onClick={() => {
+                        void refreshCoinGeckoCatalog();
+                      }}
+                      disabled={
+                        coinGeckoCatalogLoading ||
+                        coinGeckoCatalogRefreshing
+                      }
+                    >
+                      {coinGeckoCatalogRefreshing
+                        ? "Refreshing..."
+                        : "Refresh CoinGecko Catalog"}
+                    </button>
+                  </div>
 
                   {coinGeckoCatalogLoading && (
                     <p className="wallet-import-file-name">
@@ -2220,11 +2315,18 @@ function App() {
                     </p>
                   )}
 
+                  {coinGeckoCatalogRefreshing && (
+                    <p className="wallet-import-file-name">
+                      Refreshing CoinGecko asset catalog...
+                    </p>
+                  )}
+
                   {coinGeckoCatalogError &&
                     !coinGeckoCatalogLoading && (
                       <p className="wallet-validation-message">
-                        {coinGeckoCatalogError}. Try again before importing
-                        holdings. You can still save an empty wallet.
+                        {coinGeckoCatalogLoaded
+                          ? `${coinGeckoCatalogError}. The existing catalog remains active.`
+                          : `${coinGeckoCatalogError}. Try again before importing holdings. You can still save an empty wallet.`}
                       </p>
                     )}
 
@@ -2380,7 +2482,8 @@ function App() {
                     walletSubmitPending ||
                     (selectedImportFileName !== "" &&
                       (!coinGeckoCatalogLoaded ||
-                        coinGeckoCatalogLoading))
+                        coinGeckoCatalogLoading ||
+                        coinGeckoCatalogRefreshing))
                   }
                 >
                   {walletSubmitPending

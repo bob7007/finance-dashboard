@@ -28,6 +28,12 @@
 			"database_id": "8aa9d7d7-ea8c-4910-b9ac-fa589951aa1f"
 		}
 	],
+	"kv_namespaces": [
+		{
+		"binding": "APP_CACHE",
+		"id": "aa1e20fe880346ad8c7a177ef04beea3"
+		}
+	],
 	"vars": {
 		"PLAID_ENV": "production"
 	}

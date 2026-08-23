@@ -1,10 +1,12 @@
 interface Env {
   COINGECKO_API_KEY: string;
+  FINNHUB_API_KEY: string;
   PLAID_CLIENT_ID: string;
   PLAID_SECRET: string;
   PLAID_ENV: string;
   PLAID_TOKEN_ENCRYPTION_KEY: string;
   finance_dashboard_db: D1Database;
+  APP_CACHE: KVNamespace;
 }
 
 interface CoinGeckoMarket {
@@ -20,6 +22,9 @@ interface CoinGeckoCoin {
   symbol: string;
   name: string;
 }
+
+const COINGECKO_CATALOG_CACHE_KEY = "coingecko:catalog";
+const COINGECKO_CATALOG_TTL_SECONDS = 24 * 60 * 60;
 
 class CoinGeckoCatalogError extends Error {
   status: number;
@@ -280,7 +285,53 @@ function isWalletAssetConstraintError(error: unknown) {
   );
 }
 
-async function fetchCoinGeckoCatalog(env: Env) {
+function normalizeCoinGeckoCoin(value: unknown): CoinGeckoCoin | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.symbol !== "string" ||
+    typeof value.name !== "string"
+  ) {
+    return null;
+  }
+
+  const id = value.id.trim().toLowerCase();
+  const symbol = value.symbol.trim().toLowerCase();
+  const name = value.name.trim();
+
+  return id && symbol && name
+    ? { id, symbol, name }
+    : null;
+}
+
+function normalizeCoinGeckoCatalog(
+  value: unknown,
+  rejectInvalidEntries: boolean
+) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  const coins: CoinGeckoCoin[] = [];
+
+  for (const valueEntry of value) {
+    const coin = normalizeCoinGeckoCoin(valueEntry);
+
+    if (!coin) {
+      if (rejectInvalidEntries) {
+        return null;
+      }
+
+      continue;
+    }
+
+    coins.push(coin);
+  }
+
+  return coins.length > 0 ? coins : null;
+}
+
+async function fetchCoinGeckoCatalogFromApi(env: Env) {
   if (!env.COINGECKO_API_KEY) {
     throw new CoinGeckoCatalogError(
       "CoinGecko catalog validation is not configured",
@@ -315,31 +366,57 @@ async function fetchCoinGeckoCatalog(env: Env) {
 
   const data = (await response.json()) as unknown;
 
-  if (!Array.isArray(data)) {
+  const coins = normalizeCoinGeckoCatalog(data, false);
+
+  if (!coins) {
     throw new CoinGeckoCatalogError(
       "CoinGecko returned invalid asset validation data",
       502
     );
   }
 
-  return data.flatMap<CoinGeckoCoin>((coin) => {
-    if (
-      !isRecord(coin) ||
-      typeof coin.id !== "string" ||
-      typeof coin.symbol !== "string" ||
-      typeof coin.name !== "string"
-    ) {
-      return [];
+  return coins;
+}
+
+async function getCoinGeckoCatalog(
+  env: Env,
+  forceRefresh = false
+) {
+  if (!forceRefresh) {
+    try {
+      const cachedValue = await env.APP_CACHE.get(
+        COINGECKO_CATALOG_CACHE_KEY,
+        "json"
+      );
+      const cachedCoins = normalizeCoinGeckoCatalog(
+        cachedValue,
+        true
+      );
+
+      if (cachedCoins) {
+        return cachedCoins;
+      }
+    } catch {
+      // Malformed or unreadable cached JSON is treated as a cache miss.
     }
+  }
 
-    const id = coin.id.trim().toLowerCase();
-    const symbol = coin.symbol.trim().toLowerCase();
-    const name = coin.name.trim();
+  const coins = await fetchCoinGeckoCatalogFromApi(env);
 
-    return id && symbol && name
-      ? [{ id, symbol, name }]
-      : [];
-  });
+  try {
+    await env.APP_CACHE.put(
+      COINGECKO_CATALOG_CACHE_KEY,
+      JSON.stringify(coins),
+      { expirationTtl: COINGECKO_CATALOG_TTL_SECONDS }
+    );
+  } catch {
+    throw new CoinGeckoCatalogError(
+      "Unable to update CoinGecko asset cache",
+      500
+    );
+  }
+
+  return coins;
 }
 
 async function getInvalidCoinGeckoIds(
@@ -350,7 +427,7 @@ async function getInvalidCoinGeckoIds(
     return [];
   }
 
-  const catalog = await fetchCoinGeckoCatalog(env);
+  const catalog = await getCoinGeckoCatalog(env);
   const validIds = new Set(
     catalog.map((coin) => coin.id)
   );
@@ -598,7 +675,7 @@ export default {
       request.method === "GET"
     ) {
       try {
-        const coins = await fetchCoinGeckoCatalog(env);
+        const coins = await getCoinGeckoCatalog(env);
         return Response.json({ coins });
       } catch (error) {
         if (error instanceof CoinGeckoCatalogError) {
@@ -611,6 +688,32 @@ export default {
         console.error("CoinGecko catalog error");
         return Response.json(
           { error: "Unable to load CoinGecko asset validation data" },
+          { status: 502 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Force-refresh the cached CoinGecko asset catalog
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/crypto/coins/refresh" &&
+      request.method === "POST"
+    ) {
+      try {
+        const coins = await getCoinGeckoCatalog(env, true);
+        return Response.json({ coins });
+      } catch (error) {
+        if (error instanceof CoinGeckoCatalogError) {
+          return Response.json(
+            { error: error.message },
+            { status: error.status }
+          );
+        }
+
+        console.error("CoinGecko catalog refresh error");
+        return Response.json(
+          { error: "Unable to refresh CoinGecko asset validation data" },
           { status: 502 }
         );
       }

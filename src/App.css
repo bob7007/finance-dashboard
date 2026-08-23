@@ -535,9 +535,46 @@ button {
   font-weight: 600;
 }
 
+.wallet-import-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .wallet-file-input:hover {
   background: #182131;
   border-color: #536176;
+}
+
+.wallet-file-input.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wallet-catalog-refresh-button {
+  padding: 7px 11px;
+
+  border: 1px solid #2b3544;
+  border-radius: 6px;
+
+  background: transparent;
+  color: #8d99aa;
+
+  cursor: pointer;
+
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.wallet-catalog-refresh-button:hover:not(:disabled) {
+  border-color: #536176;
+  color: #c5cedb;
+}
+
+.wallet-catalog-refresh-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .wallet-file-input input {
