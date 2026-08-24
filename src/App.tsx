@@ -203,7 +203,8 @@ type CryptoSortKey =
   | "value"
   | "costBasis"
   | "gain"
-  | "return";
+  | "return"
+  | "change24h";
 
 interface SortState<Key extends string> {
   key: Key;
@@ -1322,6 +1323,8 @@ function App() {
             return holding.gain;
           case "return":
             return holding.gainPercent;
+          case "change24h":
+            return holding.change24h;
         }
       },
       cryptoSort.direction
@@ -2641,6 +2644,7 @@ function App() {
                         <SortableHeader label="Cost Basis" sortKey="costBasis" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
                         <SortableHeader label="Gain / Loss" sortKey="gain" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
                         <SortableHeader label="Return" sortKey="return" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="24H" sortKey="change24h" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
                       </tr>
                     </thead>
 
@@ -2735,6 +2739,18 @@ function App() {
                             >
                               {formatPercent(
                                 holding.gainPercent
+                              )}
+                            </td>
+
+                            <td
+                              className={`numeric ${
+                                holding.change24h >= 0
+                                  ? "positive"
+                                  : "negative"
+                              }`}
+                            >
+                              {formatPercent(
+                                holding.change24h
                               )}
                             </td>
 
