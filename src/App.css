@@ -1028,6 +1028,44 @@ button {
   white-space: nowrap;
 }
 
+.sort-header-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  padding: 0;
+  border: 0;
+
+  background: transparent;
+  color: inherit;
+
+  cursor: pointer;
+
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.sort-header-button.numeric {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.sort-header-button:hover,
+.sort-header-button:focus-visible {
+  color: #c5cedb;
+}
+
+.sort-header-button:focus-visible {
+  outline: 1px solid #6997ff;
+  outline-offset: 3px;
+}
+
+.sort-indicator {
+  color: #86aaff;
+  font-size: 8px;
+}
+
 .brokerage-price-display {
   display: inline-flex;
   align-items: center;
@@ -1041,7 +1079,28 @@ button {
   gap: 8px;
 }
 
-.brokerage-ticker-logo,
+.brokerage-ticker-logo-box {
+  width: 28px;
+  height: 28px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+
+  border: 1px solid #232c39;
+  border-radius: 6px;
+
+  background: #101620;
+}
+
+.brokerage-ticker-logo {
+  width: 23px;
+  height: 23px;
+
+  object-fit: contain;
+}
+
 .crypto-asset-logo {
   width: 22px;
   height: 22px;
@@ -1054,9 +1113,7 @@ button {
 .price-source-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-
-  padding: 2px 5px;
+  overflow: hidden;
 
   border: 1px solid #2b3544;
   border-radius: 999px;
@@ -1067,6 +1124,22 @@ button {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+
+.price-source-logo-box {
+  width: 23px;
+  height: 20px;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 23px;
+
+  background: #ffffff;
+}
+
+.price-source-label {
+  padding: 2px 7px 2px 5px;
 }
 
 .price-source-logo {

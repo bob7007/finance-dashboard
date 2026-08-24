@@ -181,6 +181,34 @@ const LOGO_DEV_PUBLISHABLE_KEY =
   "pk_WdwXw0E2SeiM6HITzQ3aFQ";
 
 type PriceSource = BrokeragePriceSource | "coingecko";
+type SortDirection = "asc" | "desc";
+type BrokerageSortKey =
+  | "symbol"
+  | "security"
+  | "account"
+  | "quantity"
+  | "price"
+  | "source"
+  | "value"
+  | "costBasis"
+  | "gain"
+  | "return";
+type CryptoSortKey =
+  | "symbol"
+  | "asset"
+  | "wallet"
+  | "quantity"
+  | "price"
+  | "source"
+  | "value"
+  | "costBasis"
+  | "gain"
+  | "return";
+
+interface SortState<Key extends string> {
+  key: Key;
+  direction: SortDirection;
+}
 
 function ResilientLogo({
   src,
@@ -223,15 +251,101 @@ function PriceSourceBadge({ source }: { source: PriceSource }) {
 
   return (
     <span className={`price-source-badge ${source}`}>
-      <ResilientLogo
-        key={logoUrl}
-        className="price-source-logo"
-        src={logoUrl}
-        alt=""
-      />
-      <span>{label}</span>
+      <span className="price-source-logo-box">
+        <ResilientLogo
+          key={logoUrl}
+          className="price-source-logo"
+          src={logoUrl}
+          alt=""
+        />
+      </span>
+      <span className="price-source-label">{label}</span>
     </span>
   );
+}
+
+function SortableHeader<Key extends string>({
+  label,
+  sortKey,
+  activeSort,
+  numeric = false,
+  onSort,
+}: {
+  label: string;
+  sortKey: Key;
+  activeSort: SortState<Key> | null;
+  numeric?: boolean;
+  onSort: (key: Key) => void;
+}) {
+  const isActive = activeSort?.key === sortKey;
+
+  return (
+    <th
+      className={numeric ? "numeric" : undefined}
+      aria-sort={
+        isActive
+          ? activeSort.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none"
+      }
+    >
+      <button
+        className={`sort-header-button${numeric ? " numeric" : ""}`}
+        type="button"
+        onClick={() => onSort(sortKey)}
+      >
+        <span>{label}</span>
+        {isActive && (
+          <span className="sort-indicator" aria-hidden="true">
+            {activeSort.direction === "asc" ? "▲" : "▼"}
+          </span>
+        )}
+      </button>
+    </th>
+  );
+}
+
+function stableSortBy<T>(
+  items: T[],
+  getValue: (item: T) => string | number | null,
+  direction: SortDirection
+) {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftValue = getValue(left.item);
+      const rightValue = getValue(right.item);
+      const leftMissing =
+        leftValue === null ||
+        (typeof leftValue === "number" && !Number.isFinite(leftValue));
+      const rightMissing =
+        rightValue === null ||
+        (typeof rightValue === "number" && !Number.isFinite(rightValue));
+
+      if (leftMissing !== rightMissing) {
+        return leftMissing ? 1 : -1;
+      }
+
+      if (leftMissing && rightMissing) {
+        return left.index - right.index;
+      }
+
+      const comparison =
+        typeof leftValue === "number" &&
+        typeof rightValue === "number"
+          ? leftValue - rightValue
+          : String(leftValue).localeCompare(String(rightValue), undefined, {
+              sensitivity: "base",
+            });
+
+      return comparison === 0
+        ? left.index - right.index
+        : direction === "asc"
+          ? comparison
+          : -comparison;
+    })
+    .map(({ item }) => item);
 }
 
 function formatPriceAge(updatedAt: Date | null, now: number) {
@@ -339,6 +453,12 @@ function App() {
 
   const [selectedAccountKey, setSelectedAccountKey] =
     useState<string | null>(null);
+
+  const [brokerageSort, setBrokerageSort] =
+    useState<SortState<BrokerageSortKey> | null>(null);
+
+  const [cryptoSort, setCryptoSort] =
+    useState<SortState<CryptoSortKey> | null>(null);
 
   const [portfolioCategory, setPortfolioCategory] =
     useState<"brokerage" | "crypto">("brokerage");
@@ -1021,6 +1141,30 @@ function App() {
   const positionCount =
     portfolio?.holdings.length ?? 0;
 
+  const cycleBrokerageSort = (key: BrokerageSortKey) => {
+    setBrokerageSort((current) => {
+      if (!current || current.key !== key) {
+        return { key, direction: "asc" };
+      }
+
+      return current.direction === "asc"
+        ? { key, direction: "desc" }
+        : null;
+    });
+  };
+
+  const cycleCryptoSort = (key: CryptoSortKey) => {
+    setCryptoSort((current) => {
+      if (!current || current.key !== key) {
+        return { key, direction: "asc" };
+      }
+
+      return current.direction === "asc"
+        ? { key, direction: "desc" }
+        : null;
+    });
+  };
+
   const displayedPortfolioHoldings = useMemo<
     DisplayedPortfolioHolding[]
   >(
@@ -1075,6 +1219,41 @@ function App() {
             selectedAccountKey
         );
 
+  const sortedHoldings = useMemo(() => {
+    if (!brokerageSort) {
+      return filteredHoldings;
+    }
+
+    return stableSortBy(
+      filteredHoldings,
+      (holding) => {
+        switch (brokerageSort.key) {
+          case "symbol":
+            return holding.ticker;
+          case "security":
+            return holding.name;
+          case "account":
+            return holding.accountName;
+          case "quantity":
+            return holding.quantity;
+          case "price":
+            return holding.price;
+          case "source":
+            return holding.priceSource;
+          case "value":
+            return holding.value;
+          case "costBasis":
+            return holding.costBasis;
+          case "gain":
+            return holding.gain;
+          case "return":
+            return holding.gainPercent;
+        }
+      },
+      brokerageSort.direction
+    );
+  }, [brokerageSort, filteredHoldings]);
+
   const brokerageTotalValue =
     displayedPortfolioHoldings.length > 0
       ? displayedPortfolioHoldings.reduce(
@@ -1103,6 +1282,51 @@ function App() {
             holding.walletId ===
             selectedCryptoWalletId
         );
+
+  const cryptoWalletNames = useMemo(
+    () =>
+      new Map(
+        cryptoWallets.map((wallet) => [wallet.id, wallet.name])
+      ),
+    [cryptoWallets]
+  );
+
+  const sortedCryptoHoldings = useMemo(() => {
+    if (!cryptoSort) {
+      return filteredCryptoHoldings;
+    }
+
+    return stableSortBy(
+      filteredCryptoHoldings,
+      (holding) => {
+        switch (cryptoSort.key) {
+          case "symbol":
+            return holding.symbol;
+          case "asset":
+            return holding.name;
+          case "wallet":
+            return cryptoWalletNames.get(holding.walletId) ?? "Wallet";
+          case "quantity":
+            return holding.quantity;
+          case "price":
+            return holding.price;
+          case "source":
+            return holding.priceSource === "coingecko"
+              ? "CoinGecko"
+              : null;
+          case "value":
+            return holding.value;
+          case "costBasis":
+            return holding.costBasis;
+          case "gain":
+            return holding.gain;
+          case "return":
+            return holding.gainPercent;
+        }
+      },
+      cryptoSort.direction
+    );
+  }, [cryptoSort, cryptoWalletNames, filteredCryptoHoldings]);
 
   const orderedWallets = walletOrder
     .map((walletId) =>
@@ -2265,32 +2489,21 @@ function App() {
                   <table className="holdings-table">
                     <thead>
                       <tr>
-                        <th>Symbol</th>
-                        <th>Security</th>
-                        <th>Account</th>
-                        <th className="numeric">
-                          Quantity
-                        </th>
-                        <th className="numeric">
-                          Price
-                        </th>
-                        <th className="numeric">
-                          Value
-                        </th>
-                        <th className="numeric">
-                          Cost Basis
-                        </th>
-                        <th className="numeric">
-                          Gain / Loss
-                        </th>
-                        <th className="numeric">
-                          Return
-                        </th>
+                        <SortableHeader label="Symbol" sortKey="symbol" activeSort={brokerageSort} onSort={cycleBrokerageSort} />
+                        <SortableHeader label="Security" sortKey="security" activeSort={brokerageSort} onSort={cycleBrokerageSort} />
+                        <SortableHeader label="Account" sortKey="account" activeSort={brokerageSort} onSort={cycleBrokerageSort} />
+                        <SortableHeader label="Quantity" sortKey="quantity" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
+                        <SortableHeader label="Price" sortKey="price" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
+                        <SortableHeader label="Source" sortKey="source" activeSort={brokerageSort} onSort={cycleBrokerageSort} />
+                        <SortableHeader label="Value" sortKey="value" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
+                        <SortableHeader label="Cost Basis" sortKey="costBasis" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
+                        <SortableHeader label="Gain / Loss" sortKey="gain" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
+                        <SortableHeader label="Return" sortKey="return" activeSort={brokerageSort} onSort={cycleBrokerageSort} numeric />
                       </tr>
                     </thead>
 
                     <tbody>
-                      {filteredHoldings.map(
+                      {sortedHoldings.map(
                         (holding) => {
                           const gainClass =
                             holding.gain ===
@@ -2313,15 +2526,17 @@ function App() {
                               <td>
                                 <div className="holding-symbol-display">
                                   {normalizedTicker && (
-                                    <ResilientLogo
-                                      key={normalizedTicker}
-                                      className="brokerage-ticker-logo"
-                                      src={
-                                        `https://img.logo.dev/ticker/${encodeURIComponent(normalizedTicker)}` +
-                                        `?token=${LOGO_DEV_PUBLISHABLE_KEY}`
-                                      }
-                                      alt=""
-                                    />
+                                    <span className="brokerage-ticker-logo-box">
+                                      <ResilientLogo
+                                        key={normalizedTicker}
+                                        className="brokerage-ticker-logo"
+                                        src={
+                                          `https://img.logo.dev/ticker/${encodeURIComponent(normalizedTicker)}` +
+                                          `?token=${LOGO_DEV_PUBLISHABLE_KEY}`
+                                        }
+                                        alt=""
+                                      />
+                                    </span>
                                   )}
                                   <span className="ticker">
                                     {holding.ticker}
@@ -2357,18 +2572,17 @@ function App() {
                               </td>
 
                               <td className="numeric">
-                                <div className="brokerage-price-display">
-                                  <span>
-                                    {formatCurrency(
-                                      holding.price,
-                                      holding.currency ??
-                                        "USD"
-                                    )}
-                                  </span>
-                                  <PriceSourceBadge
-                                    source={holding.priceSource}
-                                  />
-                                </div>
+                                {formatCurrency(
+                                  holding.price,
+                                  holding.currency ??
+                                    "USD"
+                                )}
+                              </td>
+
+                              <td>
+                                <PriceSourceBadge
+                                  source={holding.priceSource}
+                                />
                               </td>
 
                               <td className="numeric value-cell">
@@ -2417,21 +2631,21 @@ function App() {
                   <table className="holdings-table">
                     <thead>
                       <tr>
-                        <th>Symbol</th>
-                        <th>Asset</th>
-                        <th>Wallet</th>
-                        <th className="numeric">Quantity</th>
-                        <th className="numeric">Price</th>
-                        <th className="numeric">Value</th>
-                        <th className="numeric">Cost Basis</th>
-                        <th className="numeric">Gain / Loss</th>
-                        <th className="numeric">Return</th>
-                        <th className="numeric">24H</th>
+                        <SortableHeader label="Symbol" sortKey="symbol" activeSort={cryptoSort} onSort={cycleCryptoSort} />
+                        <SortableHeader label="Asset" sortKey="asset" activeSort={cryptoSort} onSort={cycleCryptoSort} />
+                        <SortableHeader label="Wallet" sortKey="wallet" activeSort={cryptoSort} onSort={cycleCryptoSort} />
+                        <SortableHeader label="Quantity" sortKey="quantity" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="Price" sortKey="price" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="Source" sortKey="source" activeSort={cryptoSort} onSort={cycleCryptoSort} />
+                        <SortableHeader label="Value" sortKey="value" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="Cost Basis" sortKey="costBasis" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="Gain / Loss" sortKey="gain" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
+                        <SortableHeader label="Return" sortKey="return" activeSort={cryptoSort} onSort={cycleCryptoSort} numeric />
                       </tr>
                     </thead>
 
                     <tbody>
-                      {filteredCryptoHoldings.map(
+                      {sortedCryptoHoldings.map(
                         (holding) => (
                           <tr key={holding.id}>
                             <td>
@@ -2461,11 +2675,9 @@ function App() {
 
                             <td>
                               <span className="account-pill">
-                                {cryptoWallets.find(
-                                  (wallet) =>
-                                    wallet.id ===
-                                    holding.walletId
-                                )?.name ?? "Wallet"}
+                                {cryptoWalletNames.get(
+                                  holding.walletId
+                                ) ?? "Wallet"}
                               </span>
                             </td>
 
@@ -2476,16 +2688,15 @@ function App() {
                             </td>
 
                             <td className="numeric">
-                              <div className="brokerage-price-display">
-                                <span>
-                                  {formatCurrency(
-                                    holding.price
-                                  )}
-                                </span>
-                                {holding.priceSource === "coingecko" && (
-                                  <PriceSourceBadge source="coingecko" />
-                                )}
-                              </div>
+                              {formatCurrency(
+                                holding.price
+                              )}
+                            </td>
+
+                            <td>
+                              {holding.priceSource === "coingecko" && (
+                                <PriceSourceBadge source="coingecko" />
+                              )}
                             </td>
 
                             <td className="numeric value-cell">
@@ -2527,17 +2738,6 @@ function App() {
                               )}
                             </td>
 
-                            <td
-                              className={`numeric ${
-                                holding.change24h >= 0
-                                  ? "positive"
-                                  : "negative"
-                              }`}
-                            >
-                              {formatPercent(
-                                holding.change24h
-                              )}
-                            </td>
                           </tr>
                         )
                       )}
