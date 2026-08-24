@@ -15,6 +15,7 @@ interface CoinGeckoMarket {
   id: string;
   symbol: string;
   name: string;
+  image: string | null;
   current_price: number | null;
   price_change_percentage_24h: number | null;
 }
@@ -987,6 +988,7 @@ export default {
           {
             symbol: string;
             name: string;
+            image: string | null;
             price: number;
             change24h: number;
           }
@@ -1003,6 +1005,11 @@ export default {
           prices[coin.id] = {
             symbol: coin.symbol.toUpperCase(),
             name: coin.name,
+            image:
+              typeof coin.image === "string" &&
+              coin.image.startsWith("https://")
+                ? coin.image
+                : null,
             price: coin.current_price as number,
             change24h: Number.isFinite(
               coin.price_change_percentage_24h

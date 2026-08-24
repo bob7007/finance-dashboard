@@ -1035,7 +1035,27 @@ button {
   gap: 7px;
 }
 
+.holding-symbol-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brokerage-ticker-logo,
+.crypto-asset-logo {
+  width: 22px;
+  height: 22px;
+
+  flex: 0 0 22px;
+
+  object-fit: contain;
+}
+
 .price-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
   padding: 2px 5px;
 
   border: 1px solid #2b3544;
@@ -1047,6 +1067,15 @@ button {
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.03em;
+}
+
+.price-source-logo {
+  width: 13px;
+  height: 13px;
+
+  flex: 0 0 13px;
+
+  object-fit: contain;
 }
 
 .price-source-badge.finnhub {

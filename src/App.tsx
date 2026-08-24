@@ -73,6 +73,7 @@ interface CryptoHolding {
   gainPercent: number;
   change24h: number;
   priceSource: "coingecko" | null;
+  imageUrl: string | null;
 }
 
 interface ImportedCryptoHolding {
@@ -89,6 +90,7 @@ interface CryptoPriceResponse {
     {
       symbol: string;
       name: string;
+      image: string | null;
       price: number;
       change24h: number;
     }
@@ -171,7 +173,65 @@ function hydrateCryptoHolding(
     gainPercent: 0,
     change24h: 0,
     priceSource: null,
+    imageUrl: null,
   };
+}
+
+const LOGO_DEV_PUBLISHABLE_KEY =
+  "pk_WdwXw0E2SeiM6HITzQ3aFQ";
+
+type PriceSource = BrokeragePriceSource | "coingecko";
+
+function ResilientLogo({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return null;
+  }
+
+  return (
+    <img
+      className={className}
+      src={src}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function PriceSourceBadge({ source }: { source: PriceSource }) {
+  const label =
+    source === "alpaca"
+      ? "Alpaca"
+      : source === "finnhub"
+        ? "Finnhub"
+        : source === "coingecko"
+          ? "CoinGecko"
+          : "Plaid";
+  const logoUrl =
+    `https://img.logo.dev/name/${source}` +
+    `?token=${LOGO_DEV_PUBLISHABLE_KEY}`;
+
+  return (
+    <span className={`price-source-badge ${source}`}>
+      <ResilientLogo
+        key={logoUrl}
+        className="price-source-logo"
+        src={logoUrl}
+        alt=""
+      />
+      <span>{label}</span>
+    </span>
+  );
 }
 
 function formatPriceAge(updatedAt: Date | null, now: number) {
@@ -732,6 +792,7 @@ function App() {
                 gainPercent: 0,
                 change24h: 0,
                 priceSource: null,
+                imageUrl: null,
               };
             }
 
@@ -751,6 +812,11 @@ function App() {
               gainPercent,
               change24h: marketData.change24h,
               priceSource: "coingecko",
+              imageUrl:
+                typeof marketData.image === "string" &&
+                marketData.image.startsWith("https://")
+                  ? marketData.image
+                  : null,
             };
           })
         );
@@ -2237,17 +2303,30 @@ function App() {
                                     0
                                   ? "negative"
                                   : "";
+                          const normalizedTicker =
+                            normalizeBrokerageTicker(holding.ticker);
 
                           return (
                             <tr
                               key={`${holding.itemId}-${holding.accountId}-${holding.securityId}`}
                             >
                               <td>
-                                <span className="ticker">
-                                  {
-                                    holding.ticker
-                                  }
-                                </span>
+                                <div className="holding-symbol-display">
+                                  {normalizedTicker && (
+                                    <ResilientLogo
+                                      key={normalizedTicker}
+                                      className="brokerage-ticker-logo"
+                                      src={
+                                        `https://img.logo.dev/ticker/${encodeURIComponent(normalizedTicker)}` +
+                                        `?token=${LOGO_DEV_PUBLISHABLE_KEY}`
+                                      }
+                                      alt=""
+                                    />
+                                  )}
+                                  <span className="ticker">
+                                    {holding.ticker}
+                                  </span>
+                                </div>
                               </td>
 
                               <td>
@@ -2286,15 +2365,9 @@ function App() {
                                         "USD"
                                     )}
                                   </span>
-                                  <span
-                                    className={`price-source-badge ${holding.priceSource}`}
-                                  >
-                                    {holding.priceSource === "alpaca"
-                                      ? "Alpaca"
-                                      : holding.priceSource === "finnhub"
-                                        ? "Finnhub"
-                                        : "Plaid"}
-                                  </span>
+                                  <PriceSourceBadge
+                                    source={holding.priceSource}
+                                  />
                                 </div>
                               </td>
 
@@ -2362,9 +2435,19 @@ function App() {
                         (holding) => (
                           <tr key={holding.id}>
                             <td>
-                              <span className="ticker">
-                                {holding.symbol}
-                              </span>
+                              <div className="holding-symbol-display">
+                                {holding.imageUrl && (
+                                  <ResilientLogo
+                                    key={holding.imageUrl}
+                                    className="crypto-asset-logo"
+                                    src={holding.imageUrl}
+                                    alt=""
+                                  />
+                                )}
+                                <span className="ticker">
+                                  {holding.symbol}
+                                </span>
+                              </div>
                             </td>
 
                             <td>
@@ -2400,9 +2483,7 @@ function App() {
                                   )}
                                 </span>
                                 {holding.priceSource === "coingecko" && (
-                                  <span className="price-source-badge coingecko">
-                                    CoinGecko
-                                  </span>
+                                  <PriceSourceBadge source="coingecko" />
                                 )}
                               </div>
                             </td>
