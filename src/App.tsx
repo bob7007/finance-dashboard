@@ -72,6 +72,7 @@ interface CryptoHolding {
   gain: number;
   gainPercent: number;
   change24h: number;
+  priceSource: "coingecko" | null;
 }
 
 interface ImportedCryptoHolding {
@@ -169,7 +170,21 @@ function hydrateCryptoHolding(
     gain: 0,
     gainPercent: 0,
     change24h: 0,
+    priceSource: null,
   };
+}
+
+function formatPriceAge(updatedAt: Date | null, now: number) {
+  if (!updatedAt) {
+    return "--";
+  }
+
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((now - updatedAt.getTime()) / 60_000)
+  );
+
+  return `${elapsedMinutes} min ago`;
 }
 
 async function readApiResponse<T extends object>(
@@ -251,6 +266,9 @@ function App() {
   const [brokeragePricingError, setBrokeragePricingError] =
     useState("");
 
+  const [brokeragePricesUpdatedAt, setBrokeragePricesUpdatedAt] =
+    useState<Date | null>(null);
+
   const brokeragePriceRequestInFlight = useRef(false);
 
   const [linkToken, setLinkToken] =
@@ -282,6 +300,12 @@ function App() {
 
   const [cryptoPricingError, setCryptoPricingError] =
     useState("");
+
+  const [cryptoPricesUpdatedAt, setCryptoPricesUpdatedAt] =
+    useState<Date | null>(null);
+
+  const [priceAgeNow, setPriceAgeNow] =
+    useState(() => Date.now());
 
   const [cryptoPricesLoading, setCryptoPricesLoading] =
     useState(false);
@@ -542,6 +566,8 @@ function App() {
 
         setBrokerageQuotes(nextQuotes);
         setBrokeragePricingError("");
+        setBrokeragePricesUpdatedAt(new Date());
+        setPriceAgeNow(Date.now());
       } catch (error) {
         setBrokerageQuotes({});
         setBrokeragePricingError(
@@ -693,7 +719,11 @@ function App() {
             const marketData =
               data.prices[holding.coinGeckoId];
 
-            if (!marketData) {
+            if (
+              !marketData ||
+              !Number.isFinite(marketData.price) ||
+              marketData.price <= 0
+            ) {
               return {
                 ...holding,
                 price: 0,
@@ -701,6 +731,7 @@ function App() {
                 gain: 0,
                 gainPercent: 0,
                 change24h: 0,
+                priceSource: null,
               };
             }
 
@@ -719,10 +750,13 @@ function App() {
               gain,
               gainPercent,
               change24h: marketData.change24h,
+              priceSource: "coingecko",
             };
           })
         );
         setCryptoPricingError("");
+        setCryptoPricesUpdatedAt(new Date());
+        setPriceAgeNow(Date.now());
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
@@ -762,6 +796,16 @@ function App() {
       refreshCryptoPricesRef.current = null;
     };
   }, [refreshCryptoPrices]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setPriceAgeNow(Date.now());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   // --------------------------------------------------
   // Get Plaid Link token
@@ -2063,43 +2107,61 @@ function App() {
                   </div>
 
                   {portfolioCategory === "crypto" && (
-                    <button
-                      className="add-wallet-button"
-                      type="button"
-                      disabled={
-                        cryptoPricesLoading ||
-                        cryptoHoldings.length === 0
-                      }
-                      onClick={() =>
-                        void refreshCryptoPrices(cryptoHoldings)
-                      }
-                    >
-                      {cryptoPricesLoading
-                        ? "Refreshing..."
-                        : "Refresh Prices"}
-                    </button>
+                    <div className="price-refresh-control">
+                      <button
+                        className="add-wallet-button"
+                        type="button"
+                        disabled={
+                          cryptoPricesLoading ||
+                          cryptoHoldings.length === 0
+                        }
+                        onClick={() =>
+                          void refreshCryptoPrices(cryptoHoldings)
+                        }
+                      >
+                        {cryptoPricesLoading
+                          ? "Refreshing..."
+                          : "Refresh Prices"}
+                      </button>
+                      <span className="price-update-age">
+                        Last price update:{" "}
+                        {formatPriceAge(
+                          cryptoPricesUpdatedAt,
+                          priceAgeNow
+                        )}
+                      </span>
+                    </div>
                   )}
 
                   {portfolioCategory === "brokerage" && (
-                    <button
-                      className="add-wallet-button"
-                      type="button"
-                      disabled={
-                        brokeragePricesLoading ||
-                        (portfolio?.holdings.length ?? 0) === 0
-                      }
-                      onClick={() => {
-                        if (portfolio) {
-                          void refreshBrokeragePrices(
-                            portfolio.holdings
-                          );
+                    <div className="price-refresh-control">
+                      <button
+                        className="add-wallet-button"
+                        type="button"
+                        disabled={
+                          brokeragePricesLoading ||
+                          (portfolio?.holdings.length ?? 0) === 0
                         }
-                      }}
-                    >
-                      {brokeragePricesLoading
-                        ? "Refreshing..."
-                        : "Refresh Prices"}
-                    </button>
+                        onClick={() => {
+                          if (portfolio) {
+                            void refreshBrokeragePrices(
+                              portfolio.holdings
+                            );
+                          }
+                        }}
+                      >
+                        {brokeragePricesLoading
+                          ? "Refreshing..."
+                          : "Refresh Prices"}
+                      </button>
+                      <span className="price-update-age">
+                        Last price update:{" "}
+                        {formatPriceAge(
+                          brokeragePricesUpdatedAt,
+                          priceAgeNow
+                        )}
+                      </span>
+                    </div>
                   )}
                 </div>
 
@@ -2331,9 +2393,18 @@ function App() {
                             </td>
 
                             <td className="numeric">
-                              {formatCurrency(
-                                holding.price
-                              )}
+                              <div className="brokerage-price-display">
+                                <span>
+                                  {formatCurrency(
+                                    holding.price
+                                  )}
+                                </span>
+                                {holding.priceSource === "coingecko" && (
+                                  <span className="price-source-badge coingecko">
+                                    CoinGecko
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="numeric value-cell">
