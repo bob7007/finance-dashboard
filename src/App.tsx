@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 import "./App.css";
+import ResearchView from "./ResearchView";
 
 interface PortfolioAccount {
   itemId: string;
@@ -487,6 +488,8 @@ function normalizeBrokerageTicker(ticker: string) {
 }
 
 function App() {
+  const [activePage, setActivePage] =
+    useState<"portfolio" | "research">("portfolio");
   const [portfolio, setPortfolio] =
     useState<PortfolioResponse | null>(null);
 
@@ -2111,7 +2114,10 @@ function App() {
         <button>Overview</button>
         <button>Accounts</button>
 
-        <button className="active">
+        <button
+          className={activePage === "portfolio" ? "active" : ""}
+          onClick={() => setActivePage("portfolio")}
+        >
           Portfolio
         </button>
 
@@ -2119,11 +2125,20 @@ function App() {
           Transactions
         </button>
 
-        <button>Research</button>
+        <button
+          className={activePage === "research" ? "active" : ""}
+          onClick={() => setActivePage("research")}
+        >
+          Research
+        </button>
         <button>Settings</button>
       </nav>
 
       <main className="content">
+        {activePage === "research" ? (
+          <ResearchView />
+        ) : (
+          <>
         {/* ------------------------------------------
             Page title
         ------------------------------------------- */}
@@ -2952,6 +2967,8 @@ function App() {
               </section>
             </>
           )}
+          </>
+        )}
       </main>
 
       {isAddWalletOpen && (

@@ -797,6 +797,79 @@ export default {
         : undefined;
 
     // --------------------------------------------------
+    // Search US-listed symbols for the Research lookahead
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/research/symbol-search" &&
+      request.method === "GET"
+    ) {
+      const query = url.searchParams.get("q")?.trim() ?? "";
+
+      if (!query || query.length > 100) {
+        return Response.json(
+          { error: "A query between 1 and 100 characters is required" },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const finnhubUrl = new URL("https://finnhub.io/api/v1/search");
+        finnhubUrl.searchParams.set("q", query);
+        finnhubUrl.searchParams.set("exchange", "US");
+        finnhubUrl.searchParams.set("token", env.FINNHUB_API_KEY);
+
+        const finnhubResponse = await fetch(finnhubUrl);
+
+        if (!finnhubResponse.ok) {
+          return Response.json(
+            { error: "Unable to search ticker symbols" },
+            { status: 502 }
+          );
+        }
+
+        const payload: unknown = await finnhubResponse.json();
+        const rawResults =
+          isRecord(payload) && Array.isArray(payload.result)
+            ? payload.result
+            : [];
+        const results = rawResults.flatMap((result) => {
+          if (!isRecord(result)) {
+            return [];
+          }
+
+          const symbol =
+            typeof result.symbol === "string" ? result.symbol.trim() : "";
+          const displaySymbol =
+            typeof result.displaySymbol === "string"
+              ? result.displaySymbol.trim()
+              : symbol;
+
+          if (!symbol || !displaySymbol) {
+            return [];
+          }
+
+          return [{
+            symbol,
+            displaySymbol,
+            description:
+              typeof result.description === "string"
+                ? result.description.trim()
+                : "",
+            type:
+              typeof result.type === "string" ? result.type.trim() : "",
+          }];
+        });
+
+        return Response.json({ results });
+      } catch {
+        return Response.json(
+          { error: "Unable to search ticker symbols" },
+          { status: 502 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
     // Get current brokerage quotes from Alpaca, Finnhub fallback
     // --------------------------------------------------
     if (
