@@ -372,6 +372,54 @@ button {
   font-weight: 600;
 }
 
+.concentration-section {
+  padding: 18px 20px 12px;
+
+  border: 1px solid #1d2633;
+  border-radius: 9px;
+
+  background: #0d1219;
+}
+
+.concentration-section .section-header {
+  margin-bottom: 4px;
+}
+
+.concentration-chart {
+  width: 100%;
+  min-height: 240px;
+}
+
+.concentration-empty-state {
+  margin: 8px 0 6px;
+
+  color: #667487;
+
+  font-size: 12px;
+}
+
+.concentration-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  padding: 9px 11px;
+
+  border: 1px solid #334055;
+  border-radius: 6px;
+
+  background: #111822;
+  color: #aeb8c7;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  font-size: 11px;
+}
+
+.concentration-tooltip strong {
+  color: #f1f4f9;
+}
+
 .add-wallet-button {
   padding: 7px 11px;
 

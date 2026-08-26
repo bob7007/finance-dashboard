@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlaidLink } from "react-plaid-link";
+import {
+  Bar,
+  BarChart,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import "./App.css";
 
 interface PortfolioAccount {
@@ -211,6 +220,12 @@ interface SortState<Key extends string> {
   direction: SortDirection;
 }
 
+interface ConcentrationChartDatum {
+  symbol: string;
+  percentage: number;
+  value: number;
+}
+
 function ResilientLogo({
   src,
   alt,
@@ -347,6 +362,55 @@ function stableSortBy<T>(
           : -comparison;
     })
     .map(({ item }) => item);
+}
+
+function buildConcentrationData(
+  assets: Array<{ key: string; symbol: string; value: number }>,
+  totalValue: number
+) {
+  if (!Number.isFinite(totalValue) || totalValue <= 0) {
+    return [];
+  }
+
+  const aggregated = new Map<
+    string,
+    { symbol: string; value: number }
+  >();
+
+  for (const asset of assets) {
+    if (!Number.isFinite(asset.value) || asset.value <= 0) {
+      continue;
+    }
+
+    const current = aggregated.get(asset.key);
+    aggregated.set(asset.key, {
+      symbol: current?.symbol ?? asset.symbol,
+      value: (current?.value ?? 0) + asset.value,
+    });
+  }
+
+  const ranked = Array.from(aggregated.values())
+    .map((asset) => ({
+      ...asset,
+      percentage: (asset.value / totalValue) * 100,
+    }))
+    .sort((left, right) => right.percentage - left.percentage);
+  const topHoldings = ranked.slice(0, 10);
+  const remaining = ranked.slice(10);
+
+  if (remaining.length > 0) {
+    const otherValue = remaining.reduce(
+      (total, asset) => total + asset.value,
+      0
+    );
+    topHoldings.push({
+      symbol: "Other",
+      value: otherValue,
+      percentage: (otherValue / totalValue) * 100,
+    });
+  }
+
+  return topHoldings;
 }
 
 function formatPriceAge(updatedAt: Date | null, now: number) {
@@ -1269,6 +1333,48 @@ function App() {
       0
     );
 
+  const brokerageConcentrationData = useMemo(
+    () =>
+      buildConcentrationData(
+        displayedPortfolioHoldings.map((holding) => {
+          const normalizedTicker = holding.ticker
+            .trim()
+            .toUpperCase();
+          const symbol = /^[A-Z0-9][A-Z0-9.-]{0,19}$/.test(
+            normalizedTicker
+          )
+            ? normalizedTicker
+            : "Unknown";
+
+          return {
+            key: symbol,
+            symbol,
+            value: holding.value ?? 0,
+          };
+        }),
+        brokerageTotalValue
+      ),
+    [brokerageTotalValue, displayedPortfolioHoldings]
+  );
+
+  const cryptoConcentrationData = useMemo(
+    () =>
+      buildConcentrationData(
+        cryptoHoldings.map((holding) => ({
+          key: holding.coinGeckoId,
+          symbol: holding.symbol,
+          value: holding.value,
+        })),
+        cryptoTotalValue
+      ),
+    [cryptoHoldings, cryptoTotalValue]
+  );
+
+  const concentrationData =
+    portfolioCategory === "brokerage"
+      ? brokerageConcentrationData
+      : cryptoConcentrationData;
+
   const cryptoAssetCount = new Set(
     cryptoHoldings.map(
       (holding) => holding.coinGeckoId
@@ -2166,6 +2272,88 @@ function App() {
                   </div>
                 </section>
               )}
+
+              <section className="section concentration-section">
+                <div className="section-header">
+                  <div>
+                    <p className="section-eyebrow">
+                      CONCENTRATION
+                    </p>
+                    <h2>Top Holdings</h2>
+                  </div>
+                </div>
+
+                {concentrationData.length === 0 ? (
+                  <p className="concentration-empty-state">
+                    Portfolio concentration is unavailable until holdings
+                    have a current value.
+                  </p>
+                ) : (
+                  <div className="concentration-chart">
+                    <ResponsiveContainer
+                      width="100%"
+                      height={Math.max(
+                        240,
+                        concentrationData.length * 34 + 40
+                      )}
+                    >
+                      <BarChart
+                        data={concentrationData}
+                        layout="vertical"
+                        margin={{ top: 4, right: 58, bottom: 4, left: 4 }}
+                      >
+                        <XAxis
+                          type="number"
+                          domain={[0, 100]}
+                          hide
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="symbol"
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: "#aeb8c7", fontSize: 11 }}
+                          width={68}
+                        />
+                        <Tooltip
+                          cursor={{ fill: "rgba(105, 151, 255, 0.06)" }}
+                          content={({ active, payload }) => {
+                            const datum = payload?.[0]?.payload as
+                              | ConcentrationChartDatum
+                              | undefined;
+
+                            return active && datum ? (
+                              <div className="concentration-tooltip">
+                                <strong>{datum.symbol}</strong>
+                                <span>
+                                  {datum.percentage.toFixed(1)}% of portfolio
+                                </span>
+                                <span>{formatCurrency(datum.value)}</span>
+                              </div>
+                            ) : null;
+                          }}
+                        />
+                        <Bar
+                          dataKey="percentage"
+                          fill="#6997ff"
+                          radius={[0, 4, 4, 0]}
+                          maxBarSize={18}
+                        >
+                          <LabelList
+                            dataKey="percentage"
+                            position="right"
+                            fill="#c5cedb"
+                            fontSize={10}
+                            formatter={(value) =>
+                              `${Number(value).toFixed(1)}%`
+                            }
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </section>
 
               {/* ------------------------------------
                   Accounts
