@@ -584,6 +584,7 @@ await page.waitForTimeout(1000);
       return null;
     }
 
+
     function findCard(title) {
       const headings = [
         ...document.querySelectorAll(

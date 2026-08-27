@@ -12,7 +12,6 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
-  Tooltip,
 } from "recharts";
 
 const RESEARCH_SERVICE_BASE_URL =
@@ -107,25 +106,50 @@ interface GfScoreRadarDatum {
   score: number;
 }
 
-function GfScoreTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: Array<{
-    value?: number;
-    payload?: GfScoreRadarDatum;
-  }>;
-}) {
-  const datum = payload?.[0]?.payload;
 
-  if (!active || !datum) return null;
+function GfScoreRadarTick({
+  x = 0,
+  y = 0,
+  textAnchor = "middle",
+  payload,
+  data,
+}: {
+  x?: string | number;
+  y?: string | number;
+  textAnchor?: string;
+  payload?: { value?: string };
+  data: GfScoreRadarDatum[];
+}) {
+  const datum = data.find((item) => item.metric === payload?.value);
+
+  if (!datum) return null;
+
+  const labelLines =
+    datum.metric === "Financial Strength"
+      ? ["Financial", "Strength"]
+      : [datum.metric];
+  const scoreColor = getComponentScoreColor(datum.score);
+  const anchor =
+    textAnchor === "start" || textAnchor === "end" ? textAnchor : "middle";
 
   return (
-    <div className="gf-score-radar-tooltip">
-      <strong>{datum.metric}</strong>
-      <span>{datum.score} / 10</span>
-    </div>
+    <g transform={`translate(${Number(x)}, ${Number(y)})`}>
+      <text textAnchor={anchor} className="gf-score-radar-axis-label">
+        {labelLines.map((line, index) => (
+          <tspan x="0" dy={index === 0 ? 0 : 12} key={line}>
+            {line}
+          </tspan>
+        ))}
+        <tspan
+          x="0"
+          dy="13"
+          className="gf-score-radar-axis-score"
+          fill={scoreColor}
+        >
+          {datum.score} / 10
+        </tspan>
+      </text>
+    </g>
   );
 }
 
@@ -180,6 +204,22 @@ function getGfValuationTone(code: number | null | undefined) {
   if (code === 4) return "positive";
   if (code === 3) return "strong-positive";
   return "";
+}
+
+function getComponentScoreColor(score: number) {
+  if (score >= 9) return "#62c99a";
+  if (score >= 7) return "#8bcaa0";
+  if (score >= 5) return "#d6b85f";
+  if (score >= 3) return "#df9862";
+  return "#ed7d89";
+}
+
+function getComponentAveragePresentation(average: number) {
+  if (average >= 9) return { label: "Excellent", color: "#62c99a" };
+  if (average >= 7) return { label: "Strong", color: "#8bcaa0" };
+  if (average >= 5) return { label: "Average", color: "#d6b85f" };
+  if (average >= 3) return { label: "Weak", color: "#df9862" };
+  return { label: "Poor", color: "#ed7d89" };
 }
 
 function formatGfScorePeriod(period: string | null) {
@@ -434,18 +474,6 @@ function ResearchView() {
     }
   }
 
-  const sections = useMemo(
-    () => research
-      ? [
-          research.sections.financialStrength,
-          research.sections.gfValueRank,
-          research.sections.momentum,
-          research.sections.profitability,
-        ]
-      : [],
-    [research],
-  );
-
   const gfScoreRadarData = useMemo<GfScoreRadarDatum[] | null>(() => {
     const components = research?.guruFocus.gfScoreComponents;
     if (!components) return null;
@@ -472,6 +500,14 @@ function ResearchView() {
 
     return data as GfScoreRadarDatum[];
   }, [research]);
+  const componentAverage = gfScoreRadarData
+    ? gfScoreRadarData.reduce((total, datum) => total + datum.score, 0) /
+      gfScoreRadarData.length
+    : null;
+  const componentAveragePresentation =
+    componentAverage === null
+      ? null
+      : getComponentAveragePresentation(componentAverage);
 
   const dailyChangeClass =
     (research?.snapshot.priceChange ?? 0) < 0 ? "negative" : "positive";
@@ -615,8 +651,14 @@ function ResearchView() {
                 <ResearchHelp label="Explain GF Score ranges">
                   <strong>GF Score ranges</strong>
                   {GF_SCORE_DEFINITIONS.map(([range, definition, tone]) => (
-                    <p className={`research-help-tone ${tone}`} key={range}>
-                      <b>{range}</b>{definition}
+                    <p
+                      className={`research-help-tone research-score-help-row ${tone}`}
+                      key={range}
+                    >
+                      <span className="research-score-range">{range}</span>
+                      <span className="research-score-description">
+                        {definition}
+                      </span>
                     </p>
                   ))}
                   {research.guruFocus.gfScorePrevious != null && (
@@ -691,52 +733,6 @@ function ResearchView() {
             </article>
           </div>
 
-          <section className="gf-score-breakdown-card">
-            <header>
-              <h2>GF Score Breakdown</h2>
-              <strong>
-                {formatNumber(research.guruFocus.gfScore)} /{" "}
-                {research.guruFocus.gfScoreMax}
-              </strong>
-            </header>
-
-            {gfScoreRadarData ? (
-              <div className="gf-score-radar-container">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart
-                    data={gfScoreRadarData}
-                    margin={{ top: 28, right: 56, bottom: 28, left: 56 }}
-                  >
-                    <PolarGrid stroke="#2b3747" />
-                    <PolarAngleAxis
-                      dataKey="metric"
-                      tick={{ fill: "#9aa8bb", fontSize: 11 }}
-                    />
-                    <PolarRadiusAxis
-                      angle={90}
-                      domain={[0, 10]}
-                      ticks={[0, 5, 10]}
-                      axisLine={false}
-                      tick={{ fill: "#637287", fontSize: 9 }}
-                    />
-                    <Radar
-                      dataKey="score"
-                      stroke="#76a1f5"
-                      strokeWidth={2}
-                      fill="#628dea"
-                      fillOpacity={0.24}
-                    />
-                    <Tooltip content={<GfScoreTooltip />} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="gf-score-breakdown-empty">
-                GF Score component breakdown unavailable.
-              </p>
-            )}
-          </section>
-
           <div className="research-snapshot-grid">
             <article>
               <span>Daily Change</span>
@@ -755,9 +751,72 @@ function ResearchView() {
           </div>
 
           <div className="research-sections-grid">
-            {sections.map((section) => (
-              <ResearchSectionCard key={section.title} section={section} />
-            ))}
+            <section className="gf-score-breakdown-card">
+              <header>
+                <h2>GF Score Breakdown</h2>
+                <strong>
+                  {formatNumber(research.guruFocus.gfScore)} /{" "}
+                  {research.guruFocus.gfScoreMax}
+                </strong>
+              </header>
+
+              {gfScoreRadarData &&
+              componentAverage !== null &&
+              componentAveragePresentation ? (
+                <>
+                  <div className="gf-score-radar-container">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadarChart
+                        data={gfScoreRadarData}
+                        margin={{ top: 38, right: 74, bottom: 38, left: 74 }}
+                      >
+                        <PolarGrid stroke="#2b3747" />
+                        <PolarAngleAxis
+                          dataKey="metric"
+                          tick={(props) => (
+                            <GfScoreRadarTick
+                              {...props}
+                              data={gfScoreRadarData}
+                            />
+                          )}
+                        />
+                        <PolarRadiusAxis
+                          angle={90}
+                          domain={[0, 10]}
+                          ticks={[0, 5, 10]}
+                          axisLine={false}
+                          tick={{ fill: "#637287", fontSize: 9 }}
+                        />
+                        <Radar
+                          dataKey="score"
+                          stroke={componentAveragePresentation.color}
+                          strokeWidth={2}
+                          fill={componentAveragePresentation.color}
+                          fillOpacity={0.22}
+                          isAnimationActive={false}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <p
+                    className="gf-score-component-average"
+                    style={{ color: componentAveragePresentation.color }}
+                  >
+                    Component Average: {componentAverage.toFixed(1)} / 10 ·{" "}
+                    {componentAveragePresentation.label}
+                  </p>
+                </>
+              ) : (
+                <p className="gf-score-breakdown-empty">
+                  GF Score component breakdown unavailable.
+                </p>
+              )}
+            </section>
+
+            <ResearchSectionCard section={research.sections.gfValueRank} />
+            <ResearchSectionCard section={research.sections.financialStrength} />
+            <ResearchSectionCard section={research.sections.momentum} />
+            <ResearchSectionCard section={research.sections.profitability} />
           </div>
         </div>
       )}
