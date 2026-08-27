@@ -1,4 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+} from "recharts";
 
 const RESEARCH_SERVICE_BASE_URL =
   import.meta.env.VITE_RESEARCH_SERVICE_URL ?? "http://localhost:3100";
@@ -57,7 +72,26 @@ interface ResearchResponse {
   guruFocus: {
     gfScore: number | null;
     gfScoreMax: number;
+    gfScorePrevious?: number | null;
+    gfScorePreviousPeriod?: string | null;
+    gfScoreComponents?: {
+      profitability: number | null;
+      growth: number | null;
+      financialStrength: number | null;
+      momentum: number | null;
+      gfValue: number | null;
+    };
     gfValue: number | null;
+    gfValuationCode?: number | null;
+    valuationLabel?: string | null;
+    gfValuationPreviousCode?: number | null;
+    gfValuationPreviousLabel?: string | null;
+    gfValuationPreviousPeriod?: string | null;
+    valueTrapWarning?: {
+      active: boolean;
+      label: string | null;
+      reasons: string[];
+    };
   };
   sections: {
     financialStrength: ResearchSection;
@@ -66,6 +100,107 @@ interface ResearchResponse {
     profitability: ResearchSection;
   };
   scrapedAt: string;
+}
+
+interface GfScoreRadarDatum {
+  metric: string;
+  score: number;
+}
+
+function GfScoreTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    value?: number;
+    payload?: GfScoreRadarDatum;
+  }>;
+}) {
+  const datum = payload?.[0]?.payload;
+
+  if (!active || !datum) return null;
+
+  return (
+    <div className="gf-score-radar-tooltip">
+      <strong>{datum.metric}</strong>
+      <span>{datum.score} / 10</span>
+    </div>
+  );
+}
+
+const GF_SCORE_DEFINITIONS = [
+  ["91–100", "Highest outperformance potential", "strong-positive"],
+  ["81–90", "Good outperformance potential", "positive"],
+  ["71–80", "Likely to have average performance", "neutral"],
+  ["51–70", "Poor future performance potential", "warning"],
+  ["0–50", "Worst future performance potential, or not enough data", "danger"],
+] as const;
+
+const GF_VALUE_DEFINITIONS = [
+  [2, "Possible Value Trap, Think Twice"],
+  [7, "Significantly Overvalued"],
+  [6, "Modestly Overvalued"],
+  [5, "Fairly Valued"],
+  [4, "Modestly Undervalued"],
+  [3, "Significantly Undervalued"],
+] as const;
+
+const GF_VALUATION_LABELS: Record<number, string> = {
+  2: "Possible Value Trap, Think Twice",
+  3: "Significantly Undervalued",
+  4: "Modestly Undervalued",
+  5: "Fairly Valued",
+  6: "Modestly Overvalued",
+  7: "Significantly Overvalued",
+};
+
+function getGfScoreInterpretation(score: number | null) {
+  if (score === null) return null;
+  if (score >= 91) return GF_SCORE_DEFINITIONS[0][1];
+  if (score >= 81) return GF_SCORE_DEFINITIONS[1][1];
+  if (score >= 71) return GF_SCORE_DEFINITIONS[2][1];
+  if (score >= 51) return GF_SCORE_DEFINITIONS[3][1];
+  return GF_SCORE_DEFINITIONS[4][1];
+}
+
+function getGfScoreTone(score: number | null) {
+  if (score === null) return "";
+  if (score >= 91) return "strong-positive";
+  if (score >= 81) return "positive";
+  if (score >= 71) return "neutral";
+  if (score >= 51) return "warning";
+  return "danger";
+}
+
+function getGfValuationTone(code: number | null | undefined) {
+  if (code === 2 || code === 7) return "danger";
+  if (code === 6) return "warning";
+  if (code === 5) return "neutral";
+  if (code === 4) return "positive";
+  if (code === 3) return "strong-positive";
+  return "";
+}
+
+function formatGfScorePeriod(period: string | null) {
+  if (!period) return null;
+  const compactPeriod = period.match(/^(\d{4})(\d{2})$/);
+  return compactPeriod ? `${compactPeriod[1]}-${compactPeriod[2]}` : period;
+}
+
+function ResearchHelp({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="research-help">
+      <summary aria-label={label}>?</summary>
+      <div>{children}</div>
+    </details>
+  );
 }
 
 function formatCurrency(value: number | null) {
@@ -197,6 +332,7 @@ function ResearchView() {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [research, setResearch] = useState<ResearchResponse | null>(null);
+  const activeResearchTicker = useRef<string | null>(null);
 
   useEffect(() => {
     const query = tickerInput.trim();
@@ -257,12 +393,14 @@ function ResearchView() {
     setSuggestions([]);
     setHighlightedIndex(-1);
     setSymbolLookupError("");
+    void handleResearchSearch(suggestion.symbol);
   };
 
-  const handleResearchSearch = async () => {
-    if (!selectedTicker || researchLoading) return;
+  async function handleResearchSearch(selectedSymbol: string) {
+    const ticker = selectedSymbol.trim().toUpperCase();
+    if (activeResearchTicker.current === ticker) return;
 
-    const ticker = selectedTicker.symbol.trim().toUpperCase();
+    activeResearchTicker.current = ticker;
     setResearchLoading(true);
     setResearchError("");
 
@@ -289,9 +427,12 @@ function ResearchView() {
             }`,
       );
     } finally {
+      if (activeResearchTicker.current === ticker) {
+        activeResearchTicker.current = null;
+      }
       setResearchLoading(false);
     }
-  };
+  }
 
   const sections = useMemo(
     () => research
@@ -305,8 +446,50 @@ function ResearchView() {
     [research],
   );
 
+  const gfScoreRadarData = useMemo<GfScoreRadarDatum[] | null>(() => {
+    const components = research?.guruFocus.gfScoreComponents;
+    if (!components) return null;
+
+    const data = [
+      { metric: "Profitability", score: components.profitability },
+      { metric: "GF Value", score: components.gfValue },
+      { metric: "Momentum", score: components.momentum },
+      { metric: "Financial Strength", score: components.financialStrength },
+      { metric: "Growth", score: components.growth },
+    ];
+
+    if (
+      data.some(
+        (datum) =>
+          datum.score === null ||
+          !Number.isFinite(datum.score) ||
+          datum.score < 0 ||
+          datum.score > 10,
+      )
+    ) {
+      return null;
+    }
+
+    return data as GfScoreRadarDatum[];
+  }, [research]);
+
   const dailyChangeClass =
     (research?.snapshot.priceChange ?? 0) < 0 ? "negative" : "positive";
+  const valueTrapWarning = research?.guruFocus.valueTrapWarning ?? {
+    active: false,
+    label: null,
+    reasons: [],
+  };
+  const gfScoreTone = getGfScoreTone(research?.guruFocus.gfScore ?? null);
+  const gfValuationTone = getGfValuationTone(
+    research?.guruFocus.gfValuationCode,
+  );
+  const valuationLabel = research
+    ? research.guruFocus.valuationLabel ??
+      (research.guruFocus.gfValuationCode == null
+        ? null
+        : GF_VALUATION_LABELS[research.guruFocus.gfValuationCode] ?? null)
+    : null;
 
   return (
     <div className="research-page">
@@ -393,14 +576,6 @@ function ResearchView() {
           {symbolLookupError && <p className="research-inline-error">{symbolLookupError}</p>}
         </div>
 
-        <button
-          type="button"
-          className="research-search-button"
-          disabled={!selectedTicker || researchLoading}
-          onClick={handleResearchSearch}
-        >
-          {researchLoading ? "Searching…" : "Search"}
-        </button>
       </section>
 
       {researchLoading && selectedTicker && (
@@ -434,9 +609,133 @@ function ResearchView() {
 
           <div className="research-hero-grid">
             <article><span>Current Price</span><strong>{formatCurrency(research.snapshot.price)}</strong></article>
-            <article className="gf-score-card"><span>GF Score</span><strong>{formatNumber(research.guruFocus.gfScore)} <small>/ {research.guruFocus.gfScoreMax}</small></strong></article>
-            <article><span>GF Value</span><strong>{formatCurrency(research.guruFocus.gfValue)}</strong></article>
+            <article className={`gf-score-card ${gfScoreTone}`}>
+              <div className="research-card-label">
+                <span>GF Score</span>
+                <ResearchHelp label="Explain GF Score ranges">
+                  <strong>GF Score ranges</strong>
+                  {GF_SCORE_DEFINITIONS.map(([range, definition, tone]) => (
+                    <p className={`research-help-tone ${tone}`} key={range}>
+                      <b>{range}</b>{definition}
+                    </p>
+                  ))}
+                  {research.guruFocus.gfScorePrevious != null && (
+                    <small className="research-help-previous">
+                      Last period: {formatNumber(research.guruFocus.gfScorePrevious)} / 100
+                      {research.guruFocus.gfScorePreviousPeriod
+                        ? ` (${formatGfScorePeriod(research.guruFocus.gfScorePreviousPeriod)})`
+                        : ""}
+                    </small>
+                  )}
+                </ResearchHelp>
+              </div>
+              <strong>{formatNumber(research.guruFocus.gfScore)} <small>/ {research.guruFocus.gfScoreMax}</small></strong>
+              {getGfScoreInterpretation(research.guruFocus.gfScore) && (
+                <p className={`research-score-interpretation ${gfScoreTone}`}>
+                  {getGfScoreInterpretation(research.guruFocus.gfScore)}
+                </p>
+              )}
+              {research.guruFocus.gfScorePrevious != null && (
+                <small className="research-previous-value">
+                  Previous: {formatNumber(research.guruFocus.gfScorePrevious)} / 100
+                  {research.guruFocus.gfScorePreviousPeriod
+                    ? ` · ${formatGfScorePeriod(research.guruFocus.gfScorePreviousPeriod)}`
+                    : ""}
+                </small>
+              )}
+            </article>
+            <article className={`gf-value-card ${gfValuationTone}`}>
+              <div className="research-card-label">
+                <span>GF Value</span>
+                <ResearchHelp label="Explain GF Value categories">
+                  <strong>GF Value categories</strong>
+                  <p className="research-help-copy">
+                    Based on the relationship between the current stock price and the GF Value, GuruFocus provides six valuation classifications.
+                  </p>
+                  {GF_VALUE_DEFINITIONS.map(([code, definition]) => (
+                    <p className={`research-help-tone ${getGfValuationTone(code)}`} key={code}>
+                      {definition}
+                    </p>
+                  ))}
+                  <p className="research-help-copy">
+                    There is only a sufficient margin of safety when the stock is undervalued.
+                  </p>
+                  {research.guruFocus.gfValuationPreviousLabel && (
+                    <small className="research-help-previous">
+                      Previous: {research.guruFocus.gfValuationPreviousLabel}
+                      {research.guruFocus.gfValuationPreviousPeriod
+                        ? ` · ${formatGfScorePeriod(research.guruFocus.gfValuationPreviousPeriod)}`
+                        : ""}
+                    </small>
+                  )}
+                </ResearchHelp>
+              </div>
+              <strong>{formatCurrency(research.guruFocus.gfValue)}</strong>
+              {valuationLabel && (
+                <p className={`research-valuation-label ${gfValuationTone}`}>
+                  {valuationLabel}
+                </p>
+              )}
+              {valueTrapWarning.active && valueTrapWarning.reasons.length > 0 && (
+                <div className="research-value-trap-warning">
+                  <b>{valueTrapWarning.label ?? "Possible Value Trap"}</b>
+                  {valueTrapWarning.reasons.length > 0 && (
+                    <ul>
+                      {valueTrapWarning.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </article>
           </div>
+
+          <section className="gf-score-breakdown-card">
+            <header>
+              <h2>GF Score Breakdown</h2>
+              <strong>
+                {formatNumber(research.guruFocus.gfScore)} /{" "}
+                {research.guruFocus.gfScoreMax}
+              </strong>
+            </header>
+
+            {gfScoreRadarData ? (
+              <div className="gf-score-radar-container">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart
+                    data={gfScoreRadarData}
+                    margin={{ top: 28, right: 56, bottom: 28, left: 56 }}
+                  >
+                    <PolarGrid stroke="#2b3747" />
+                    <PolarAngleAxis
+                      dataKey="metric"
+                      tick={{ fill: "#9aa8bb", fontSize: 11 }}
+                    />
+                    <PolarRadiusAxis
+                      angle={90}
+                      domain={[0, 10]}
+                      ticks={[0, 5, 10]}
+                      axisLine={false}
+                      tick={{ fill: "#637287", fontSize: 9 }}
+                    />
+                    <Radar
+                      dataKey="score"
+                      stroke="#76a1f5"
+                      strokeWidth={2}
+                      fill="#628dea"
+                      fillOpacity={0.24}
+                    />
+                    <Tooltip content={<GfScoreTooltip />} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="gf-score-breakdown-empty">
+                GF Score component breakdown unavailable.
+              </p>
+            )}
+          </section>
 
           <div className="research-snapshot-grid">
             <article>

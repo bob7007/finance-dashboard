@@ -463,6 +463,127 @@ await page.waitForTimeout(1000);
       return null;
     }
 
+    /*
+     * Read additional scalar values from the same embedded Nuxt state used by
+     * the GF Score parser. This does not execute the payload or interact with
+     * tooltip UI; it only resolves minified IIFE parameter aliases.
+     */
+    function extractEmbeddedStateValue(fieldName) {
+      const escapedFieldName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const fieldPattern = new RegExp(
+        `${escapedFieldName}\\s*:\\s*([^,}\\n]+)`,
+        "gi"
+      );
+
+      function parseScalar(rawValue) {
+        const raw = String(rawValue ?? "").trim();
+
+        if (!raw || raw === "null" || raw === "undefined") {
+          return null;
+        }
+
+        if (raw === "true") return true;
+        if (raw === "false") return false;
+
+        const numericValue = Number(raw);
+        if (Number.isFinite(numericValue)) return numericValue;
+
+        if (raw.startsWith('"') && raw.endsWith('"')) {
+          try {
+            return JSON.parse(raw);
+          } catch {
+            return raw.slice(1, -1);
+          }
+        }
+
+        if (raw.startsWith("'") && raw.endsWith("'")) {
+          return raw
+            .slice(1, -1)
+            .replace(/\\'/g, "'")
+            .replace(/\\\\/g, "\\");
+        }
+
+        return null;
+      }
+
+      for (const script of document.querySelectorAll("script")) {
+        const source = script.textContent || "";
+        const fieldMatches = source.matchAll(fieldPattern);
+
+        for (const fieldMatch of fieldMatches) {
+
+        const directValue = parseScalar(fieldMatch[1]);
+        if (directValue !== null) return directValue;
+
+        const alias = fieldMatch[1].trim();
+        if (!/^[A-Za-z_$][\w$]*$/.test(alias)) continue;
+
+        const functionStartMatch = source.match(
+          /\(function\s*\(([^)]*)\)\s*\{/
+        );
+        if (!functionStartMatch) continue;
+
+        const params = functionStartMatch[1]
+          .split(",")
+          .map((value) => value.trim());
+        const aliasIndex = params.indexOf(alias);
+        if (aliasIndex === -1) continue;
+
+        let invocationStart = -1;
+        for (let index = source.length - 1; index >= 0; index--) {
+          if (source[index] !== "(") continue;
+          const before = source
+            .slice(Math.max(0, index - 5), index)
+            .replace(/\s+/g, "");
+          if (before.endsWith("})") || before.endsWith("}")) {
+            invocationStart = index;
+            break;
+          }
+        }
+        if (invocationStart === -1) continue;
+
+        let depth = 0;
+        let quote = null;
+        let escaped = false;
+        let invocationEnd = -1;
+
+        for (let index = invocationStart; index < source.length; index++) {
+          const char = source[index];
+          if (quote) {
+            if (escaped) {
+              escaped = false;
+            } else if (char === "\\") {
+              escaped = true;
+            } else if (char === quote) {
+              quote = null;
+            }
+            continue;
+          }
+          if (char === "'" || char === '"' || char === "`") {
+            quote = char;
+          } else if (char === "(") {
+            depth++;
+          } else if (char === ")") {
+            depth--;
+            if (depth === 0) {
+              invocationEnd = index;
+              break;
+            }
+          }
+        }
+        if (invocationEnd === -1) continue;
+
+        const args = splitJavaScriptArguments(
+          source.slice(invocationStart + 1, invocationEnd)
+        );
+        const resolvedValue = parseScalar(args[aliasIndex]);
+        if (resolvedValue !== null) return resolvedValue;
+        }
+      }
+
+      return null;
+    }
+
     function findCard(title) {
       const headings = [
         ...document.querySelectorAll(
@@ -775,6 +896,77 @@ await page.waitForTimeout(1000);
     const gfScore =
       extractGfScore();
 
+    const gfScorePreviousValue =
+      extractEmbeddedStateValue("gf_score_last_value");
+    const gfScorePreviousPeriodValue =
+      extractEmbeddedStateValue("gf_score_last_period");
+    const valuationValue =
+      extractEmbeddedStateValue("gf_valuation");
+    const valuationPreviousValue =
+      extractEmbeddedStateValue("gf_valuation_last_value");
+    const valuationPreviousPeriodValue =
+      extractEmbeddedStateValue("gf_valuation_last_period");
+    const profitabilityComponentValue =
+      extractEmbeddedStateValue("rank_profitability");
+    const growthComponentValue =
+      extractEmbeddedStateValue("rank_growth");
+    const financialStrengthComponentValue =
+      extractEmbeddedStateValue("rank_balancesheet");
+    const momentumComponentValue =
+      extractEmbeddedStateValue("rank_momentum");
+    const gfValueComponentValue =
+      extractEmbeddedStateValue("rank_gf_value");
+    const valueTrapLabelValue =
+      extractEmbeddedStateValue("value_trap_label") ??
+      extractEmbeddedStateValue("gf_value_trap_label");
+    const valueTrapActiveValue =
+      extractEmbeddedStateValue("value_trap_active") ??
+      extractEmbeddedStateValue("gf_value_trap_active");
+    const valuationLabels = {
+      2: "Possible Value Trap, Think Twice",
+      3: "Significantly Undervalued",
+      4: "Modestly Undervalued",
+      5: "Fairly Valued",
+      6: "Modestly Overvalued",
+      7: "Significantly Overvalued",
+    };
+    const valuationLabel =
+      typeof valuationValue === "string"
+        ? valuationValue
+        : typeof valuationValue === "number"
+          ? valuationLabels[valuationValue] ?? null
+          : null;
+    const gfValuationCode =
+      typeof valuationValue === "number" && Number.isFinite(valuationValue)
+        ? valuationValue
+        : null;
+    const gfValuationPreviousCode =
+      typeof valuationPreviousValue === "number" &&
+      Number.isFinite(valuationPreviousValue)
+        ? valuationPreviousValue
+        : null;
+    const gfValuationPreviousLabel =
+      gfValuationPreviousCode === null
+        ? null
+        : valuationLabels[gfValuationPreviousCode] ?? null;
+    const valueTrapLabel =
+      typeof valueTrapLabelValue === "string"
+        ? valueTrapLabelValue
+        : valuationLabel && /value trap/i.test(valuationLabel)
+          ? valuationLabel
+          : null;
+    const valueTrapActive =
+      valueTrapActiveValue === true ||
+      valueTrapActiveValue === 1 ||
+      Boolean(valueTrapLabel);
+    const normalizeScoreComponent = (value) =>
+      typeof value === "number" &&
+      Number.isFinite(value) &&
+      value >= 0 &&
+      value <= 10
+        ? value
+        : null;
+
     /*
      * GF Value is visible as normal page text,
      * so DOM extraction is sufficient here.
@@ -860,12 +1052,52 @@ await page.waitForTimeout(1000);
 
         gfScoreMax: 100,
 
+        gfScorePrevious:
+          typeof gfScorePreviousValue === "number" &&
+          Number.isFinite(gfScorePreviousValue)
+            ? gfScorePreviousValue
+            : null,
+
+        gfScorePreviousPeriod:
+          typeof gfScorePreviousPeriodValue === "string"
+            ? gfScorePreviousPeriodValue
+            : null,
+
+        gfScoreComponents: {
+          profitability: normalizeScoreComponent(profitabilityComponentValue),
+          growth: normalizeScoreComponent(growthComponentValue),
+          financialStrength: normalizeScoreComponent(
+            financialStrengthComponentValue
+          ),
+          momentum: normalizeScoreComponent(momentumComponentValue),
+          gfValue: normalizeScoreComponent(gfValueComponentValue),
+        },
+
         gfValue:
           gfValueMatch
             ? toNumber(
                 gfValueMatch[1]
               )
             : null,
+
+        gfValuationCode,
+
+        valuationLabel,
+
+        gfValuationPreviousCode,
+
+        gfValuationPreviousLabel,
+
+        gfValuationPreviousPeriod:
+          typeof valuationPreviousPeriodValue === "string"
+            ? valuationPreviousPeriodValue
+            : null,
+
+        valueTrapWarning: {
+          active: valueTrapActive,
+          label: valueTrapLabel,
+          reasons: [],
+        },
       },
 
       sections: {
