@@ -3,6 +3,7 @@ interface Env {
   FINNHUB_API_KEY: string;
   ALPACA_API_KEY: string;
   ALPACA_API_SECRET: string;
+  TIINGO_API_KEY: string;
   PLAID_CLIENT_ID: string;
   PLAID_SECRET: string;
   PLAID_ENV: string;
@@ -31,6 +32,16 @@ type BrokerageQuoteSource = "alpaca" | "finnhub";
 interface ExternalBrokerageQuote {
   price: number;
   source: BrokerageQuoteSource;
+}
+
+interface TiingoPriceRow {
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  adjustedClose: number | null;
+  volume: number | null;
 }
 
 const COINGECKO_CATALOG_CACHE_KEY = "coingecko:catalog";
@@ -864,6 +875,117 @@ export default {
       } catch {
         return Response.json(
           { error: "Unable to search ticker symbols" },
+          { status: 502 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Get normalized Tiingo end-of-day price history
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/market/history" &&
+      request.method === "GET"
+    ) {
+      const symbol = url.searchParams.get("symbol")?.trim().toUpperCase() ?? "";
+
+      if (
+        !symbol ||
+        symbol.length > 20 ||
+        !/^[A-Z0-9][A-Z0-9.-]*$/.test(symbol)
+      ) {
+        return Response.json(
+          { error: "A valid ticker symbol is required" },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const tiingoUrl = new URL(
+          `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(symbol)}/prices`
+        );
+        tiingoUrl.searchParams.set("startDate", "1980-01-01");
+
+        const tiingoResponse = await fetch(tiingoUrl, {
+          headers: {
+            Accept: "application/json",
+            Authorization: `Token ${env.TIINGO_API_KEY}`,
+          },
+        });
+
+        if (tiingoResponse.status === 404) {
+          return Response.json(
+            { error: `No Tiingo history is available for ${symbol}` },
+            { status: 404 }
+          );
+        }
+
+        if (tiingoResponse.status === 429) {
+          const headers = new Headers();
+          const retryAfter = tiingoResponse.headers.get("Retry-After");
+          if (retryAfter) headers.set("Retry-After", retryAfter);
+          return Response.json(
+            { error: "Tiingo rate limit reached" },
+            { status: 429, headers }
+          );
+        }
+
+        if (!tiingoResponse.ok) {
+          return Response.json(
+            { error: "Unable to retrieve Tiingo price history" },
+            { status: 502 }
+          );
+        }
+
+        const payload: unknown = await tiingoResponse.json();
+        if (!Array.isArray(payload)) {
+          return Response.json(
+            { error: "Tiingo returned malformed price history" },
+            { status: 502 }
+          );
+        }
+
+        const nullableNumber = (value: unknown): number | null =>
+          typeof value === "number" && Number.isFinite(value) ? value : null;
+        const prices = payload.flatMap<TiingoPriceRow>((row) => {
+          if (!isRecord(row)) return [];
+
+          const rawDate = typeof row.date === "string" ? row.date.trim() : "";
+          const close = nullableNumber(row.close);
+          if (!rawDate || close === null) return [];
+
+          return [{
+            date: rawDate.includes("T") ? rawDate.slice(0, 10) : rawDate,
+            open: nullableNumber(row.open),
+            high: nullableNumber(row.high),
+            low: nullableNumber(row.low),
+            close,
+            adjustedClose: nullableNumber(row.adjClose),
+            volume: nullableNumber(row.volume),
+          }];
+        });
+
+        if (prices.length === 0) {
+          return Response.json(
+            {
+              error: payload.length === 0
+                ? `No Tiingo history is available for ${symbol}`
+                : "Tiingo returned malformed price history",
+            },
+            { status: payload.length === 0 ? 404 : 502 }
+          );
+        }
+
+        prices.sort((left, right) => left.date.localeCompare(right.date));
+
+        return Response.json({
+          symbol,
+          source: "tiingo",
+          prices,
+        });
+      } catch {
+        return Response.json(
+          { error: "Unable to retrieve Tiingo price history" },
           { status: 502 }
         );
       }

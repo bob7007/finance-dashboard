@@ -6,12 +6,18 @@ import {
   useState,
 } from "react";
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
   PolarAngleAxis,
   PolarGrid,
   PolarRadiusAxis,
   Radar,
   RadarChart,
   ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
 
 const RESEARCH_SERVICE_BASE_URL =
@@ -27,6 +33,30 @@ interface SymbolSuggestion {
 interface SymbolSearchResponse {
   results: SymbolSuggestion[];
 }
+
+interface HistoricalPrice {
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  adjustedClose: number | null;
+  volume: number | null;
+}
+
+interface PriceHistoryResponse {
+  symbol: string;
+  source: "tiingo";
+  prices: HistoricalPrice[];
+}
+
+type PriceHistoryRange = "1M" | "3M" | "6M" | "1Y" | "3Y" | "5Y" | "10Y" | "20Y" | "MAX";
+
+interface PriceChartDatum extends HistoricalPrice {
+  chartPrice: number;
+}
+
+const priceHistoryCache = new Map<string, PriceHistoryResponse>();
 
 interface ResearchMetricSegment {
   label: string;
@@ -361,6 +391,151 @@ function ResearchSectionCard({ section }: { section: ResearchSection }) {
   );
 }
 
+function PriceHistoryPanel({
+  symbol,
+  history,
+  loading,
+  error,
+  range,
+  onRangeChange,
+}: {
+  symbol: string;
+  history: PriceHistoryResponse | null;
+  loading: boolean;
+  error: string;
+  range: PriceHistoryRange;
+  onRangeChange: (range: PriceHistoryRange) => void;
+}) {
+  const visiblePrices = useMemo<PriceChartDatum[]>(() => {
+    if (!history?.prices.length) return [];
+
+    const latestDate = history.prices[history.prices.length - 1].date;
+    const cutoff = new Date(`${latestDate}T00:00:00Z`);
+    if (range !== "MAX" && !Number.isNaN(cutoff.getTime())) {
+      const amount = Number.parseInt(range, 10);
+      if (range.endsWith("M")) {
+        cutoff.setUTCMonth(cutoff.getUTCMonth() - amount);
+      } else {
+        cutoff.setUTCFullYear(cutoff.getUTCFullYear() - amount);
+      }
+    }
+    const cutoffDate = range === "MAX" || Number.isNaN(cutoff.getTime())
+      ? ""
+      : cutoff.toISOString().slice(0, 10);
+
+    return history.prices
+      .filter((price) => !cutoffDate || price.date >= cutoffDate)
+      .map((price) => ({
+        ...price,
+        chartPrice: price.adjustedClose ?? price.close,
+      }));
+  }, [history, range]);
+
+  const performance = visiblePrices.length > 1
+    ? ((visiblePrices[visiblePrices.length - 1].chartPrice /
+        visiblePrices[0].chartPrice) - 1) * 100
+    : null;
+  const longRange = range === "3Y" || range === "5Y" || range === "10Y" || range === "20Y" || range === "MAX";
+
+  return (
+    <section className="research-price-chart-card">
+      <header>
+        <div>
+          <p className="section-eyebrow">TIINGO END-OF-DAY DATA</p>
+          <div className="research-price-chart-title">
+            <h2>{symbol} Price History</h2>
+            {performance !== null && Number.isFinite(performance) && (
+              <span className={performance < 0 ? "negative" : "positive"}>
+                {performance >= 0 ? "+" : ""}{performance.toFixed(1)}%
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="research-price-chart-ranges" aria-label="Price history range">
+          {(["1M", "3M", "6M", "1Y", "3Y", "5Y", "10Y", "20Y", "MAX"] as const).map((option) => (
+            <button
+              type="button"
+              className={range === option ? "active" : ""}
+              aria-pressed={range === option}
+              onClick={() => onRangeChange(option)}
+              key={option}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="research-price-chart-status">Loading price history...</div>
+      ) : error || visiblePrices.length === 0 ? (
+        <div className="research-price-chart-status">Price history unavailable.</div>
+      ) : (
+        <div className="research-price-chart-container">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={visiblePrices}
+              margin={{ top: 18, right: 24, bottom: 8, left: 10 }}
+            >
+              <defs>
+                <linearGradient id="researchPriceFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6f9deb" stopOpacity={0.32} />
+                  <stop offset="95%" stopColor="#6f9deb" stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#202b39" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="date"
+                minTickGap={44}
+                tick={{ fill: "#718198", fontSize: 10 }}
+                tickFormatter={(date: string) => {
+                  const parsed = new Date(`${date}T00:00:00Z`);
+                  if (Number.isNaN(parsed.getTime())) return date;
+                  return parsed.toLocaleDateString("en-US", longRange
+                    ? { year: "numeric", timeZone: "UTC" }
+                    : { month: "short", day: range.endsWith("M") ? "numeric" : undefined, timeZone: "UTC" });
+                }}
+              />
+              <YAxis
+                width={72}
+                domain={["auto", "auto"]}
+                tick={{ fill: "#718198", fontSize: 10 }}
+                tickFormatter={(value: number) => `$${Math.round(value)}`}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "#151c27",
+                  border: "1px solid #344155",
+                  borderRadius: "6px",
+                  color: "#dce4ef",
+                  fontSize: "11px",
+                }}
+                labelFormatter={(date) => new Date(`${String(date)}T00:00:00Z`).toLocaleDateString(
+                  "en-US",
+                  { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" },
+                )}
+                formatter={(value) => [
+                  typeof value === "number" ? formatCurrency(value) : "—",
+                  "Adjusted close",
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="chartPrice"
+                stroke="#82aef7"
+                strokeWidth={1.8}
+                fill="url(#researchPriceFill)"
+                dot={false}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ResearchView() {
   const [tickerInput, setTickerInput] = useState("");
   const [suggestions, setSuggestions] = useState<SymbolSuggestion[]>([]);
@@ -372,7 +547,13 @@ function ResearchView() {
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [research, setResearch] = useState<ResearchResponse | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryResponse | null>(null);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [priceHistoryError, setPriceHistoryError] = useState("");
+  const [selectedPriceRange, setSelectedPriceRange] =
+    useState<PriceHistoryRange>("5Y");
   const activeResearchTicker = useRef<string | null>(null);
+  const activePriceHistoryTicker = useRef<string | null>(null);
 
   useEffect(() => {
     const query = tickerInput.trim();
@@ -433,8 +614,62 @@ function ResearchView() {
     setSuggestions([]);
     setHighlightedIndex(-1);
     setSymbolLookupError("");
+    void handlePriceHistorySearch(suggestion.symbol);
     void handleResearchSearch(suggestion.symbol);
   };
+
+  async function handlePriceHistorySearch(selectedSymbol: string) {
+    const ticker = selectedSymbol.trim().toUpperCase();
+    const cached = priceHistoryCache.get(ticker);
+
+    activePriceHistoryTicker.current = ticker;
+    setSelectedPriceRange("5Y");
+    setPriceHistoryError("");
+    if (cached) {
+      setPriceHistory(cached);
+      setPriceHistoryLoading(false);
+      return;
+    }
+
+    setPriceHistory(null);
+    setPriceHistoryLoading(true);
+
+    try {
+      const response = await fetch(
+        `/api/market/history?symbol=${encodeURIComponent(ticker)}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | PriceHistoryResponse
+        | { error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(
+          payload && "error" in payload && payload.error
+            ? payload.error
+            : `Price history request failed (${response.status}).`,
+        );
+      }
+      if (!payload || !("prices" in payload) || !Array.isArray(payload.prices)) {
+        throw new Error("Price history response was malformed.");
+      }
+
+      priceHistoryCache.set(ticker, payload);
+      if (activePriceHistoryTicker.current === ticker) {
+        setPriceHistory(payload);
+      }
+    } catch (error) {
+      if (activePriceHistoryTicker.current === ticker) {
+        setPriceHistoryError(
+          error instanceof Error ? error.message : "Price history unavailable.",
+        );
+      }
+    } finally {
+      if (activePriceHistoryTicker.current === ticker) {
+        setPriceHistoryLoading(false);
+      }
+    }
+  }
 
   async function handleResearchSearch(selectedSymbol: string) {
     const ticker = selectedSymbol.trim().toUpperCase();
@@ -621,6 +856,20 @@ function ResearchView() {
       )}
       {researchError && <p className="research-request-error">{researchError}</p>}
 
+      {!research && selectedTicker &&
+        (priceHistoryLoading || priceHistory || priceHistoryError) && (
+          <div className="research-results">
+            <PriceHistoryPanel
+              symbol={priceHistory?.symbol ?? selectedTicker.symbol.toUpperCase()}
+              history={priceHistory}
+              loading={priceHistoryLoading}
+              error={priceHistoryError}
+              range={selectedPriceRange}
+              onRangeChange={setSelectedPriceRange}
+            />
+          </div>
+        )}
+
       {research && (
         <div className="research-results">
           <header className="research-company-header">
@@ -732,6 +981,15 @@ function ResearchView() {
               )}
             </article>
           </div>
+
+          <PriceHistoryPanel
+            symbol={priceHistory?.symbol ?? selectedTicker?.symbol.toUpperCase() ?? research.ticker}
+            history={priceHistory}
+            loading={priceHistoryLoading}
+            error={priceHistoryError}
+            range={selectedPriceRange}
+            onRangeChange={setSelectedPriceRange}
+          />
 
           <div className="research-snapshot-grid">
             <article>

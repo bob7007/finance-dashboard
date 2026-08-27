@@ -454,6 +454,84 @@ button {
 .research-score-description { color: #aeb9c8; }
 .research-help-previous { display: block; margin-top: 11px; padding-top: 9px; border-top: 1px solid #303b4c; color: #9eacc0; line-height: 1.4; }
 
+.research-price-chart-card {
+  overflow: hidden;
+  border: 1px solid #202938;
+  border-radius: 9px;
+  background: #0e131b;
+}
+
+.research-price-chart-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #222c3a;
+}
+
+.research-price-chart-card h2 {
+  margin: 0;
+  color: #e2e8f1;
+  font-size: 17px;
+}
+
+.research-price-chart-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.research-price-chart-title span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.research-price-chart-title .positive { color: #63c69b; }
+.research-price-chart-title .negative { color: #e77d87; }
+
+.research-price-chart-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #293445;
+  border-radius: 7px;
+  background: #0a0f16;
+}
+
+.research-price-chart-ranges button {
+  min-width: 34px;
+  padding: 6px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #718198;
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.research-price-chart-ranges button:hover { color: #dce4ef; }
+.research-price-chart-ranges button.active { background: #22324a; color: #9dbbfa; }
+
+.research-price-chart-container,
+.research-price-chart-status {
+  width: 100%;
+  height: 450px;
+  min-width: 0;
+}
+
+.research-price-chart-container { padding: 8px 6px 2px; }
+.research-price-chart-status {
+  display: grid;
+  place-items: center;
+  color: #718198;
+  font-size: 12px;
+}
+
 .gf-score-breakdown-card {
   overflow: hidden;
   border: 1px solid #202938;
@@ -541,6 +619,10 @@ button {
   .research-suggestions small { display: none; }
   .research-snapshot-grid { grid-template-columns: 1fr; }
   .gf-score-radar-container { height: 270px; }
+  .research-price-chart-card > header { align-items: flex-start; flex-direction: column; }
+  .research-price-chart-ranges { justify-content: flex-start; }
+  .research-price-chart-container,
+  .research-price-chart-status { height: 360px; }
 }
 
 /* ----------------------------------------
