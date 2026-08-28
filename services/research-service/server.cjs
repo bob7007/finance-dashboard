@@ -6,7 +6,9 @@ const {
 } = require("../../scripts/gurufocus-scraper.cjs");
 const {
   getBrowser,
+  restartBrowser,
   closeBrowser,
+  getBrowserStatus,
   recordScrapeAttemptStarted,
 } = require("./browser-manager.cjs");
 
@@ -24,7 +26,7 @@ app.use((request, response, next) => {
 
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     response.setHeader("Access-Control-Allow-Origin", origin);
-    response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     response.setHeader("Vary", "Origin");
   }
 
@@ -41,6 +43,42 @@ app.get("/health", (_request, response) => {
     ok: true,
     service: "research-service",
   });
+});
+
+app.get("/status", (_request, response) => {
+  response.json({
+    ok: true,
+    service: "research-service",
+    scrapeInProgress,
+    browser: getBrowserStatus(),
+  });
+});
+
+app.post("/browser/restart", async (_request, response) => {
+  // This control endpoint must be authenticated before NAS/public deployment.
+  if (scrapeInProgress) {
+    response.status(409).json({
+      success: false,
+      error: "Browser restart unavailable",
+      message: "Cannot restart Chromium while a research scrape is active.",
+    });
+    return;
+  }
+
+  try {
+    await restartBrowser("manual", { headless: false });
+    response.json({
+      success: true,
+      browser: getBrowserStatus(),
+    });
+  } catch (error) {
+    console.error("Manual Chromium restart failed:", error);
+    response.status(500).json({
+      success: false,
+      error: "Browser restart failed",
+      message: "Chromium could not be restarted.",
+    });
+  }
 });
 
 app.get("/research/:ticker", async (request, response) => {
