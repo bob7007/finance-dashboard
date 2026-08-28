@@ -1,8 +1,29 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 const path = require("path");
+const { performance } = require("node:perf_hooks");
+
+async function measurePhase(timings, phase, operation) {
+  const startedAt = performance.now();
+  try {
+    return await operation();
+  } finally {
+    timings[phase] = performance.now() - startedAt;
+  }
+}
 
 async function scrapeGuruFocus(ticker, options = {}) {
+  const totalStartedAt = performance.now();
+  const timings = {
+    browserLaunch: 0,
+    newPage: 0,
+    navigation: 0,
+    waitStockHeader: 0,
+    waitFinancialStrength: 0,
+    dataReadiness: 0,
+    extraction: 0,
+    browserClose: 0,
+  };
   const normalizedTicker = String(ticker ?? "")
     .trim()
     .toUpperCase();
@@ -13,26 +34,33 @@ async function scrapeGuruFocus(ticker, options = {}) {
     );
   }
 
-  const browser = await chromium.launch({
-    headless: options.headless === true,
-  });
+  let browser;
 
   try {
+  browser = await measurePhase(timings, "browserLaunch", () =>
+    chromium.launch({
+      headless: options.headless === true,
+    }),
+  );
 
-  const page = await browser.newPage({
-    viewport: {
-      width: 1600,
-      height: 1200,
-    },
-  });
+  const page = await measurePhase(timings, "newPage", () =>
+    browser.newPage({
+      viewport: {
+        width: 1600,
+        height: 1200,
+      },
+    }),
+  );
 
   const url =
     `https://www.gurufocus.com/stock/${normalizedTicker}/summary`;
 
-  const response = await page.goto(url, {
-    waitUntil: "domcontentloaded",
-    timeout: 60000,
-  });
+  const response = await measurePhase(timings, "navigation", () =>
+    page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 60000,
+    }),
+  );
 
   if (!response) {
     throw new Error(`Navigation failed for ${normalizedTicker}.`);
@@ -47,15 +75,59 @@ async function scrapeGuruFocus(ticker, options = {}) {
 /*
  * Wait only for the page content we actually need.
  */
-await page.waitForSelector("#stock-header", {
-  timeout: 10000,
-});
+await measurePhase(timings, "waitStockHeader", () =>
+  page.waitForSelector("#stock-header", {
+    timeout: 10000,
+  }),
+);
 
-await page.waitForSelector("text=Financial Strength", {
-  timeout: 10000,
-});
+await measurePhase(timings, "waitFinancialStrength", () =>
+  page.waitForSelector("text=Financial Strength", {
+    timeout: 10000,
+  }),
+);
 
-await page.waitForTimeout(1000);
+await measurePhase(timings, "dataReadiness", () =>
+  page.waitForFunction(() => {
+    const cleanText = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const headings = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+    const sectionTitles = [
+      "Financial Strength",
+      "GF Value Rank",
+      "Momentum Rank",
+      "Profitability Rank",
+    ];
+    const sectionsReady = sectionTitles.every((title) => {
+      const heading = headings.find((element) =>
+        cleanText(element.textContent).toLowerCase().includes(title.toLowerCase()),
+      );
+      const card =
+        heading?.closest(".children-card") ||
+        heading?.parentElement?.parentElement ||
+        heading?.parentElement;
+      return Boolean(card?.querySelector("tbody tr"));
+    });
+    const embeddedState = [...document.querySelectorAll("script")]
+      .map((script) => script.textContent ?? "")
+      .join("\n");
+    const embeddedFields = [
+      "gf_score",
+      "gf_valuation",
+      "rank_profitability",
+      "rank_growth",
+      "rank_balancesheet",
+      "rank_momentum",
+      "rank_gf_value",
+    ];
+    const bodyText = cleanText(document.body?.innerText);
+
+    return (
+      sectionsReady &&
+      embeddedFields.every((field) => embeddedState.includes(field)) &&
+      /GF Value[^$]*\$\s*[\d,.]+/i.test(bodyText)
+    );
+  }, { timeout: 10000 }),
+);
 
 /*
  * Extract the rendered data.
@@ -63,7 +135,8 @@ await page.waitForTimeout(1000);
  * We normalize GuruFocus's DOM/state into our own
  * predictable object instead of returning their HTML structure.
  */
-  const research = await page.evaluate((ticker) => {
+  const research = await measurePhase(timings, "extraction", () =>
+    page.evaluate((ticker) => {
     function cleanText(value) {
       return (value ?? "")
         .replace(/\s+/g, " ")
@@ -1126,7 +1199,8 @@ await page.waitForTimeout(1000);
       scrapedAt:
         new Date().toISOString(),
     };
-  }, normalizedTicker);
+    }, normalizedTicker),
+  );
 
   if (!research.companyName) {
     throw new Error(
@@ -1149,7 +1223,24 @@ await page.waitForTimeout(1000);
 
   return research;
   } finally {
-    await browser.close();
+    try {
+      if (browser) {
+        await measurePhase(timings, "browserClose", () => browser.close());
+      }
+    } finally {
+      const total = performance.now() - totalStartedAt;
+      console.error(
+        `[research:timing] ${normalizedTicker} total=${Math.round(total)}ms ` +
+        `browserLaunch=${Math.round(timings.browserLaunch)}ms ` +
+        `newPage=${Math.round(timings.newPage)}ms ` +
+        `navigation=${Math.round(timings.navigation)}ms ` +
+        `waitStockHeader=${Math.round(timings.waitStockHeader)}ms ` +
+        `waitFinancialStrength=${Math.round(timings.waitFinancialStrength)}ms ` +
+        `dataReadiness=${Math.round(timings.dataReadiness)}ms ` +
+        `extraction=${Math.round(timings.extraction)}ms ` +
+        `browserClose=${Math.round(timings.browserClose)}ms`,
+      );
+    }
   }
 }
 

@@ -1,11 +1,15 @@
 const express = require("express");
+const { performance } = require("node:perf_hooks");
 
 const {
   scrapeGuruFocus,
 } = require("../../scripts/gurufocus-scraper.cjs");
 
 const PORT = Number(process.env.PORT) || 3100;
-const DEVELOPMENT_ORIGIN = "http://localhost:5173";
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:5173",
+  "https://terminal.7007solutions.com",
+]);
 
 const app = express();
 let scrapeInProgress = false;
@@ -13,8 +17,8 @@ let scrapeInProgress = false;
 app.use((request, response, next) => {
   const origin = request.headers.origin;
 
-  if (origin === DEVELOPMENT_ORIGIN) {
-    response.setHeader("Access-Control-Allow-Origin", DEVELOPMENT_ORIGIN);
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    response.setHeader("Access-Control-Allow-Origin", origin);
     response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     response.setHeader("Vary", "Origin");
   }
@@ -58,14 +62,21 @@ app.get("/research/:ticker", async (request, response) => {
   }
 
   scrapeInProgress = true;
+  const requestStartedAt = performance.now();
 
   try {
     const research = await scrapeGuruFocus(ticker, {
       headless: false,
     });
 
+    console.log(
+      `[research] ${ticker} completed in ${Math.round(performance.now() - requestStartedAt)}ms`,
+    );
     response.json(research);
   } catch (error) {
+    console.error(
+      `[research] ${ticker} failed in ${Math.round(performance.now() - requestStartedAt)}ms`,
+    );
     console.error(`Research scrape failed for ${ticker}:`, error);
     response.status(502).json({
       error: "Research scrape failed",

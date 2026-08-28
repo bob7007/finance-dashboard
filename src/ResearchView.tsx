@@ -20,8 +20,9 @@ import {
   YAxis,
 } from "recharts";
 
-const RESEARCH_SERVICE_BASE_URL =
-  import.meta.env.VITE_RESEARCH_SERVICE_URL ?? "http://localhost:3100";
+const researchApiBaseUrl = (
+  import.meta.env.VITE_RESEARCH_API_BASE_URL || "http://localhost:3100"
+).replace(/\/+$/, "");
 
 interface SymbolSuggestion {
   symbol: string;
@@ -681,7 +682,7 @@ function ResearchView() {
 
     try {
       const response = await fetch(
-        `${RESEARCH_SERVICE_BASE_URL}/research/${encodeURIComponent(ticker)}`,
+        `${researchApiBaseUrl}/research/${encodeURIComponent(ticker)}`,
       );
 
       if (!response.ok) {
