@@ -4,6 +4,11 @@ const { performance } = require("node:perf_hooks");
 const {
   scrapeGuruFocus,
 } = require("../../scripts/gurufocus-scraper.cjs");
+const {
+  getBrowser,
+  closeBrowser,
+  recordScrapeAttemptStarted,
+} = require("./browser-manager.cjs");
 
 const PORT = Number(process.env.PORT) || 3100;
 const ALLOWED_ORIGINS = new Set([
@@ -65,8 +70,11 @@ app.get("/research/:ticker", async (request, response) => {
   const requestStartedAt = performance.now();
 
   try {
+    const browser = await getBrowser({ headless: false });
     const research = await scrapeGuruFocus(ticker, {
+      browser,
       headless: false,
+      onContextCreated: recordScrapeAttemptStarted,
     });
 
     console.log(
@@ -95,6 +103,25 @@ app.use((error, _request, response, _next) => {
   });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`Research service listening on http://localhost:${PORT}`);
 });
+
+let shuttingDown = false;
+function handleShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[research] ${signal} received; shutting down cleanly`);
+
+  server.close(async () => {
+    try {
+      await closeBrowser();
+    } catch (error) {
+      console.error("Failed to close Chromium during shutdown:", error);
+      process.exitCode = 1;
+    }
+  });
+}
+
+process.once("SIGINT", () => handleShutdown("SIGINT"));
+process.once("SIGTERM", () => handleShutdown("SIGTERM"));

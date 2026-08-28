@@ -15,14 +15,14 @@ async function measurePhase(timings, phase, operation) {
 async function scrapeGuruFocus(ticker, options = {}) {
   const totalStartedAt = performance.now();
   const timings = {
-    browserLaunch: 0,
+    newContext: 0,
     newPage: 0,
     navigation: 0,
     waitStockHeader: 0,
     waitFinancialStrength: 0,
-    dataReadiness: 0,
+    readiness: 0,
     extraction: 0,
-    browserClose: 0,
+    contextClose: 0,
   };
   const normalizedTicker = String(ticker ?? "")
     .trim()
@@ -34,22 +34,34 @@ async function scrapeGuruFocus(ticker, options = {}) {
     );
   }
 
-  let browser;
+  let browser = options.browser;
+  let browserContext;
+  let ownsBrowser = false;
 
   try {
-  browser = await measurePhase(timings, "browserLaunch", () =>
-    chromium.launch({
+  if (!browser) {
+    const browserStartedAt = performance.now();
+    browser = await chromium.launch({
       headless: options.headless === true,
-    }),
-  );
+    });
+    ownsBrowser = true;
+    console.error(
+      `[research:browser] Chromium started in ${Math.round(performance.now() - browserStartedAt)}ms`,
+    );
+  }
 
-  const page = await measurePhase(timings, "newPage", () =>
-    browser.newPage({
+  browserContext = await measurePhase(timings, "newContext", () =>
+    browser.newContext({
       viewport: {
         width: 1600,
         height: 1200,
       },
     }),
+  );
+  await options.onContextCreated?.();
+
+  const page = await measurePhase(timings, "newPage", () =>
+    browserContext.newPage(),
   );
 
   const url =
@@ -87,7 +99,7 @@ await measurePhase(timings, "waitFinancialStrength", () =>
   }),
 );
 
-await measurePhase(timings, "dataReadiness", () =>
+await measurePhase(timings, "readiness", () =>
   page.waitForFunction(() => {
     const cleanText = (value) => (value ?? "").replace(/\s+/g, " ").trim();
     const headings = [...document.querySelectorAll("h1, h2, h3, h4, h5, h6")];
@@ -1224,21 +1236,27 @@ await measurePhase(timings, "dataReadiness", () =>
   return research;
   } finally {
     try {
-      if (browser) {
-        await measurePhase(timings, "browserClose", () => browser.close());
+      try {
+        if (browserContext) {
+          await measurePhase(timings, "contextClose", () => browserContext.close());
+        }
+      } finally {
+        if (ownsBrowser && browser) {
+          await browser.close();
+        }
       }
     } finally {
       const total = performance.now() - totalStartedAt;
       console.error(
         `[research:timing] ${normalizedTicker} total=${Math.round(total)}ms ` +
-        `browserLaunch=${Math.round(timings.browserLaunch)}ms ` +
+        `newContext=${Math.round(timings.newContext)}ms ` +
         `newPage=${Math.round(timings.newPage)}ms ` +
         `navigation=${Math.round(timings.navigation)}ms ` +
         `waitStockHeader=${Math.round(timings.waitStockHeader)}ms ` +
         `waitFinancialStrength=${Math.round(timings.waitFinancialStrength)}ms ` +
-        `dataReadiness=${Math.round(timings.dataReadiness)}ms ` +
+        `readiness=${Math.round(timings.readiness)}ms ` +
         `extraction=${Math.round(timings.extraction)}ms ` +
-        `browserClose=${Math.round(timings.browserClose)}ms`,
+        `contextClose=${Math.round(timings.contextClose)}ms`,
       );
     }
   }
