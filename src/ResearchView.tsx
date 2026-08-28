@@ -1,5 +1,6 @@
 import {
   type ReactNode,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -33,6 +34,25 @@ interface SymbolSuggestion {
 
 interface SymbolSearchResponse {
   results: SymbolSuggestion[];
+}
+
+interface ResearchBrowserStatus {
+  connected: boolean;
+  headless: boolean | null;
+  maxScrapesBeforeRestart: number;
+  browserStartedAt: string | null;
+  scrapesSinceRestart: number;
+  totalBrowserStarts: number;
+  totalBrowserRestarts: number;
+  lastRestartAt: string | null;
+  lastRestartReason: string | null;
+}
+
+interface ResearchServiceStatus {
+  ok: boolean;
+  service: string;
+  scrapeInProgress: boolean;
+  browser: ResearchBrowserStatus;
 }
 
 interface HistoricalPrice {
@@ -291,6 +311,21 @@ function formatNumber(value: number | null) {
   }).format(value);
 }
 
+function formatBrowserUptime(browserStartedAt: string | null) {
+  if (!browserStartedAt) return "--";
+  const startedAt = new Date(browserStartedAt).getTime();
+  if (!Number.isFinite(startedAt)) return "--";
+
+  const totalMinutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60_000));
+  const days = Math.floor(totalMinutes / 1_440);
+  const hours = Math.floor((totalMinutes % 1_440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
 function ComparisonBar({ percent }: { percent: number | null }) {
   if (percent === null) return <span className="research-null-value">—</span>;
 
@@ -546,8 +581,15 @@ function ResearchView() {
   const [symbolLookupError, setSymbolLookupError] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [researchLoading, setResearchLoading] = useState(false);
+  const [researchLoadingTicker, setResearchLoadingTicker] = useState("");
   const [researchError, setResearchError] = useState("");
   const [research, setResearch] = useState<ResearchResponse | null>(null);
+  const [researchServiceStatus, setResearchServiceStatus] =
+    useState<ResearchServiceStatus | null>(null);
+  const [researchServiceAvailable, setResearchServiceAvailable] =
+    useState<boolean | null>(null);
+  const [researchServiceError, setResearchServiceError] = useState("");
+  const [browserRestarting, setBrowserRestarting] = useState(false);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryResponse | null>(null);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [priceHistoryError, setPriceHistoryError] = useState("");
@@ -555,6 +597,81 @@ function ResearchView() {
     useState<PriceHistoryRange>("5Y");
   const activeResearchTicker = useRef<string | null>(null);
   const activePriceHistoryTicker = useRef<string | null>(null);
+  const statusRequestInProgress = useRef(false);
+  const researchViewMounted = useRef(false);
+
+  const fetchResearchStatus = useCallback(async () => {
+    if (statusRequestInProgress.current) return;
+    statusRequestInProgress.current = true;
+
+    try {
+      const response = await fetch(`${researchApiBaseUrl}/status`);
+      if (!response.ok) throw new Error("Research service status failed");
+      const status = (await response.json()) as ResearchServiceStatus;
+      if (researchViewMounted.current) {
+        setResearchServiceStatus(status);
+        setResearchServiceAvailable(true);
+      }
+    } catch {
+      if (researchViewMounted.current) setResearchServiceAvailable(false);
+    } finally {
+      statusRequestInProgress.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    researchViewMounted.current = true;
+    const initialStatusTimeout = window.setTimeout(() => {
+      void fetchResearchStatus();
+    }, 0);
+    const interval = window.setInterval(() => {
+      void fetchResearchStatus();
+    }, 15_000);
+
+    return () => {
+      researchViewMounted.current = false;
+      window.clearTimeout(initialStatusTimeout);
+      window.clearInterval(interval);
+    };
+  }, [fetchResearchStatus]);
+
+  async function handleBrowserRestart() {
+    if (browserRestarting) return;
+    setBrowserRestarting(true);
+    setResearchServiceError("");
+
+    try {
+      const response = await fetch(`${researchApiBaseUrl}/browser/restart`, {
+        method: "POST",
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { browser?: ResearchBrowserStatus }
+        | null;
+
+      if (response.status === 409) {
+        setResearchServiceError(
+          "Research is currently running. Try again when it finishes.",
+        );
+        return;
+      }
+      if (!response.ok || !payload?.browser) {
+        throw new Error("Browser restart failed");
+      }
+
+      setResearchServiceStatus((current) => ({
+        ok: true,
+        service: current?.service ?? "research-service",
+        scrapeInProgress: false,
+        browser: payload.browser!,
+      }));
+      setResearchServiceAvailable(true);
+      await fetchResearchStatus();
+    } catch {
+      setResearchServiceError("Browser restart failed. Please try again.");
+    } finally {
+      setBrowserRestarting(false);
+    }
+  }
 
   useEffect(() => {
     const query = tickerInput.trim();
@@ -678,7 +795,9 @@ function ResearchView() {
 
     activeResearchTicker.current = ticker;
     setResearchLoading(true);
+    setResearchLoadingTicker(ticker);
     setResearchError("");
+    setResearch(null);
 
     try {
       const response = await fetch(
@@ -692,21 +811,26 @@ function ResearchView() {
         throw new Error(payload?.message || `Research request failed (${response.status}).`);
       }
 
-      setResearch((await response.json()) as ResearchResponse);
+      const payload = (await response.json()) as ResearchResponse;
+      if (activeResearchTicker.current === ticker) setResearch(payload);
     } catch (error) {
       const unavailable = error instanceof TypeError;
-      setResearchError(
-        unavailable
-          ? "Research service is unavailable. Start it with: npm run research:dev"
-          : `Could not load research for ${ticker}. ${
-              error instanceof Error ? error.message : "Please try again."
-            }`,
-      );
+      if (activeResearchTicker.current === ticker) {
+        setResearchError(
+          unavailable
+            ? "Research service is unavailable. Start it with: npm run research:dev"
+            : `Could not load research for ${ticker}. ${
+                error instanceof Error ? error.message : "Please try again."
+              }`,
+        );
+      }
     } finally {
       if (activeResearchTicker.current === ticker) {
         activeResearchTicker.current = null;
+        setResearchLoading(false);
+        setResearchLoadingTicker("");
       }
-      setResearchLoading(false);
+      void fetchResearchStatus();
     }
   }
 
@@ -775,8 +899,9 @@ function ResearchView() {
         </div>
       </div>
 
-      <section className="research-search-panel">
-        <div className="research-search-control">
+      <div className="research-controls-row">
+        <section className="research-search-panel">
+          <div className="research-search-control">
           <label htmlFor="research-ticker">Ticker or company</label>
           <div className="research-input-wrap">
             <input
@@ -846,14 +971,55 @@ function ResearchView() {
             </p>
           )}
           {symbolLookupError && <p className="research-inline-error">{symbolLookupError}</p>}
+          </div>
+        </section>
+
+        <section className="research-service-card">
+          <div className="research-service-heading">
+            <h2>Research Service</h2>
+          </div>
+          <dl>
+            <div>
+              <dt>Service</dt>
+              <dd className={researchServiceAvailable ? "service-online" : "service-unavailable"}>
+                {researchServiceAvailable ? "Online" : "Unavailable"}
+              </dd>
+            </div>
+            <div>
+              <dt>Chromium</dt>
+              <dd>{browserRestarting ? "Restarting" : researchServiceStatus?.browser.connected ? "Connected" : "Disconnected"}</dd>
+            </div>
+            <div>
+              <dt>Scrapes</dt>
+              <dd>{researchServiceStatus ? `${researchServiceStatus.browser.scrapesSinceRestart} / ${researchServiceStatus.browser.maxScrapesBeforeRestart}` : "--"}</dd>
+            </div>
+            <div>
+              <dt>Browser uptime</dt>
+              <dd>{formatBrowserUptime(researchServiceStatus?.browser.browserStartedAt ?? null)}</dd>
+            </div>
+            <div>
+              <dt>Last restart</dt>
+              <dd>{researchServiceStatus?.browser.lastRestartReason ?? "--"}</dd>
+            </div>
+          </dl>
+          <button
+            type="button"
+            className="research-service-restart"
+            disabled={browserRestarting || !researchServiceAvailable}
+            onClick={() => void handleBrowserRestart()}
+          >
+            {browserRestarting && <span className="research-spinner" aria-hidden="true" />}
+            {browserRestarting ? "Restarting..." : "Restart Browser"}
+          </button>
+          {researchServiceError && <p className="research-service-error">{researchServiceError}</p>}
+        </section>
+      </div>
+
+      {researchLoading && researchLoadingTicker && (
+        <div className="research-loading-message" role="status">
+          <span className="research-spinner" aria-hidden="true" />
+          <span>Loading {researchLoadingTicker} research...</span>
         </div>
-
-      </section>
-
-      {researchLoading && selectedTicker && (
-        <p className="research-loading-message">
-          Loading research for {selectedTicker.symbol.toUpperCase()}…
-        </p>
       )}
       {researchError && <p className="research-request-error">{researchError}</p>}
 
@@ -871,7 +1037,7 @@ function ResearchView() {
           </div>
         )}
 
-      {research && (
+      {research && !researchLoading && (
         <div className="research-results">
           <header className="research-company-header">
             {research.logoUrl && (
