@@ -20,6 +20,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import ResearchDefinitionTooltip from "./ResearchDefinitionTooltip";
+import {
+  RESEARCH_DEFINITIONS,
+  VALUATION_DEFINITIONS,
+} from "./researchDefinitions";
 
 const researchApiBaseUrl = (
   import.meta.env.VITE_RESEARCH_API_BASE_URL || "http://localhost:3100"
@@ -338,11 +343,22 @@ function ComparisonBar({ percent }: { percent: number | null }) {
   );
 }
 
+function ResearchMetricTitle({ label }: { label: string }) {
+  return (
+    <ResearchDefinitionTooltip
+      definitionKey={label}
+      definitions={RESEARCH_DEFINITIONS}
+    >
+      {label}
+    </ResearchDefinitionTooltip>
+  );
+}
+
 function SegmentedMetric({ metric }: { metric: ResearchMetric }) {
   return (
     <div className="research-segmented-metric">
       <div className="research-segmented-heading">
-        <span>{metric.label}</span>
+        <span><ResearchMetricTitle label={metric.label} /></span>
         <strong>
           {metric.displayValue ?? formatNumber(metric.value)}
         </strong>
@@ -405,7 +421,7 @@ function ResearchSectionCard({ section }: { section: ResearchSection }) {
             <tbody>
               {normalMetrics.map((metric) => (
                 <tr key={metric.key}>
-                  <td>{metric.label}</td>
+                  <td><ResearchMetricTitle label={metric.label} /></td>
                   <td>{metric.displayValue ?? formatNumber(metric.value)}</td>
                   <td><ComparisonBar percent={metric.industry.percent} /></td>
                   <td><ComparisonBar percent={metric.history.percent} /></td>
@@ -1131,7 +1147,12 @@ function ResearchView() {
               <strong>{formatCurrency(research.guruFocus.gfValue)}</strong>
               {valuationLabel && (
                 <p className={`research-valuation-label ${gfValuationTone}`}>
-                  {valuationLabel}
+                  <ResearchDefinitionTooltip
+                    definitionKey={valuationLabel}
+                    definitions={VALUATION_DEFINITIONS}
+                  >
+                    {valuationLabel}
+                  </ResearchDefinitionTooltip>
                 </p>
               )}
               {valueTrapWarning.active && valueTrapWarning.reasons.length > 0 && (
