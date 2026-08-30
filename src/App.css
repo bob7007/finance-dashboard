@@ -289,8 +289,8 @@ button {
 
 .research-search-panel {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: stretch;
+  flex-direction: column;
   padding: 20px;
   border: 1px solid #202938;
   border-radius: 10px;
@@ -302,7 +302,7 @@ button {
   grid-template-columns: minmax(0, 760px) minmax(240px, 300px);
   align-items: start;
   gap: 14px;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
 }
 
 .research-service-card {
@@ -439,8 +439,36 @@ button {
 
 .research-selected-ticker { margin: 8px 0 0; color: #8eaddf; font-size: 12px; }
 .research-inline-error { margin: 8px 0 0; color: #e18d8d; font-size: 12px; }
+.research-recent { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 16px 0 0; }
+.research-recent-label { color: #718198; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.research-recent-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.research-recent-list button {
+  padding: 5px 9px;
+  border: 1px solid #2b3748;
+  border-radius: 999px;
+  background: #101722;
+  color: #b9c6d8;
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+.research-recent-list button:nth-child(odd) {
+  border-color: rgba(96, 165, 250, 0.28);
+  background: rgba(59, 130, 246, 0.1);
+}
+.research-recent-list button:nth-child(even) {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.08);
+}
+.research-recent-list button:hover { border-color: #526b91; background: #152033; color: #edf3fb; }
+.research-recent-list button:focus-visible { outline: 2px solid #628dea; outline-offset: 2px; }
+.research-recent-empty,
+.research-recent-error { color: #66758a; font-size: 10px; }
+.research-recent-error { color: #d28a91; }
 .research-loading-message { display: flex; align-items: center; gap: 9px; min-height: 48px; color: #9eacc0; font-size: 13px; }
 .research-request-error { padding: 12px 14px; border: 1px solid #59323a; border-radius: 7px; background: #211318; color: #e9a0a8; font-size: 13px; }
+.research-persistence-warning { margin: 8px 0; color: #d6b85f; font-size: 11px; }
 
 .research-results { display: grid; gap: 22px; margin-top: 30px; }
 .research-company-header { display: flex; align-items: center; gap: 16px; }
@@ -464,6 +492,8 @@ button {
 .research-card-label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .research-card-label > span { color: #718198; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
 .research-hero-grid article > p { min-height: 30px; margin: 10px 0 0; color: #9eadc1; font-size: 12px; line-height: 1.4; }
+.research-hero-grid .research-live-price-source { color: #62c99a; font-size: 10px; }
+.research-hero-grid .research-live-price-error { color: #d28a91; font-size: 10px; }
 .research-hero-grid .gf-score-card { border-color: #35598c; background: linear-gradient(135deg, #111b2b, #0e131b); }
 .gf-score-card strong { color: #85adff !important; font-size: 34px !important; }
 .gf-score-card strong small { color: #8090a7; font-size: 14px; }

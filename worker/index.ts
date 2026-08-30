@@ -44,8 +44,29 @@ interface TiingoPriceRow {
   volume: number | null;
 }
 
+interface ResearchRecentRow {
+  ticker: string;
+  company_name: string | null;
+  exchange: string | null;
+  last_viewed_at: string;
+  last_searched_at: string | null;
+  latest_scraped_at: string | null;
+}
+
+interface ResearchSnapshotRow {
+  id: number;
+  ticker: string;
+  company_name: string | null;
+  exchange: string | null;
+  scraped_at: string;
+  schema_version: number;
+  research_json: string;
+}
+
 const COINGECKO_CATALOG_CACHE_KEY = "coingecko:catalog";
 const COINGECKO_CATALOG_TTL_SECONDS = 24 * 60 * 60;
+const MAX_RESEARCH_REQUEST_BYTES = 1024 * 1024;
+const RESEARCH_SCHEMA_VERSION = 1;
 
 class CoinGeckoCatalogError extends Error {
   status: number;
@@ -103,6 +124,17 @@ const CRYPTO_WALLET_TYPES = new Set<CryptoWalletType>([
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function normalizeResearchTicker(value: unknown) {
+  if (typeof value !== "string") return null;
+  const ticker = value.trim().toUpperCase();
+
+  return ticker.length > 0 &&
+    ticker.length <= 20 &&
+    /^[A-Z0-9][A-Z0-9.-]*$/.test(ticker)
+    ? ticker
+    : null;
 }
 
 function parseCryptoWallet(value: unknown):
@@ -806,6 +838,333 @@ export default {
       env.PLAID_ENV === "production"
         ? "https://terminal.7007solutions.com/oauth-return"
         : undefined;
+
+    // --------------------------------------------------
+    // Save a complete fresh GuruFocus research snapshot
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/research" &&
+      request.method === "POST"
+    ) {
+      const declaredLength = Number(request.headers.get("Content-Length"));
+      if (
+        Number.isFinite(declaredLength) &&
+        declaredLength > MAX_RESEARCH_REQUEST_BYTES
+      ) {
+        return Response.json(
+          { error: "Research payload is too large" },
+          { status: 413 }
+        );
+      }
+
+      try {
+        const requestText = await request.text();
+        if (
+          new TextEncoder().encode(requestText).byteLength >
+          MAX_RESEARCH_REQUEST_BYTES
+        ) {
+          return Response.json(
+            { error: "Research payload is too large" },
+            { status: 413 }
+          );
+        }
+
+        let body: unknown;
+        try {
+          body = JSON.parse(requestText) as unknown;
+        } catch {
+          return Response.json(
+            { error: "Request body must be valid JSON" },
+            { status: 400 }
+          );
+        }
+
+        if (!isRecord(body)) {
+          return Response.json(
+            { error: "Request body is invalid" },
+            { status: 400 }
+          );
+        }
+
+        const ticker = normalizeResearchTicker(body.ticker);
+        if (!ticker) {
+          return Response.json(
+            { error: "A valid ticker symbol is required" },
+            { status: 400 }
+          );
+        }
+
+        if (!isRecord(body.research) || Array.isArray(body.research)) {
+          return Response.json(
+            { error: "Research must be a JSON object" },
+            { status: 400 }
+          );
+        }
+
+        if (
+          body.companyName !== undefined &&
+          body.companyName !== null &&
+          typeof body.companyName !== "string"
+        ) {
+          return Response.json(
+            { error: "Company name must be a string or null" },
+            { status: 400 }
+          );
+        }
+
+        if (
+          body.exchange !== undefined &&
+          body.exchange !== null &&
+          typeof body.exchange !== "string"
+        ) {
+          return Response.json(
+            { error: "Exchange must be a string or null" },
+            { status: 400 }
+          );
+        }
+
+        const companyName =
+          typeof body.companyName === "string"
+            ? body.companyName.trim() || null
+            : null;
+        const exchange =
+          typeof body.exchange === "string"
+            ? body.exchange.trim() || null
+            : null;
+
+        if ((companyName?.length ?? 0) > 500 || (exchange?.length ?? 0) > 100) {
+          return Response.json(
+            { error: "Company name or exchange is too long" },
+            { status: 400 }
+          );
+        }
+
+        const researchJson = JSON.stringify(body.research);
+        if (
+          new TextEncoder().encode(researchJson).byteLength >
+          MAX_RESEARCH_REQUEST_BYTES
+        ) {
+          return Response.json(
+            { error: "Research payload is too large" },
+            { status: 413 }
+          );
+        }
+
+        const now = new Date().toISOString();
+        const results = await env.finance_dashboard_db.batch([
+          env.finance_dashboard_db
+            .prepare(`
+              INSERT INTO research_companies (
+                ticker,
+                company_name,
+                exchange,
+                last_viewed_at,
+                last_searched_at,
+                created_at,
+                updated_at
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+              ON CONFLICT(ticker) DO UPDATE SET
+                company_name = COALESCE(
+                  excluded.company_name,
+                  research_companies.company_name
+                ),
+                exchange = COALESCE(
+                  excluded.exchange,
+                  research_companies.exchange
+                ),
+                last_viewed_at = excluded.last_viewed_at,
+                last_searched_at = excluded.last_searched_at,
+                updated_at = excluded.updated_at
+            `)
+            .bind(ticker, companyName, exchange, now, now, now, now),
+          env.finance_dashboard_db
+            .prepare(`
+              INSERT INTO research_snapshots (
+                ticker,
+                scraped_at,
+                schema_version,
+                research_json
+              )
+              VALUES (?, ?, ?, ?)
+            `)
+            .bind(ticker, now, RESEARCH_SCHEMA_VERSION, researchJson),
+        ]);
+
+        return Response.json(
+          {
+            ok: true,
+            ticker,
+            snapshotId: results[1].meta.last_row_id,
+            scrapedAt: now,
+          },
+          { status: 201 }
+        );
+      } catch (error) {
+        console.error(
+          "Research snapshot save error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+        return Response.json(
+          { error: "Unable to save research snapshot" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // --------------------------------------------------
+    // Get most recently researched companies
+    // --------------------------------------------------
+    if (
+      url.pathname === "/api/research/recent" &&
+      request.method === "GET"
+    ) {
+      const limitValue = url.searchParams.get("limit");
+      const limit = limitValue === null ? 20 : Number(limitValue);
+
+      if (
+        (limitValue !== null && !/^\d+$/.test(limitValue)) ||
+        !Number.isInteger(limit) ||
+        limit < 1 ||
+        limit > 50
+      ) {
+        return Response.json(
+          { error: "Limit must be an integer between 1 and 50" },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const result = await env.finance_dashboard_db
+          .prepare(`
+            SELECT
+              c.ticker,
+              c.company_name,
+              c.exchange,
+              c.last_viewed_at,
+              c.last_searched_at,
+              MAX(s.scraped_at) AS latest_scraped_at
+            FROM research_companies c
+            LEFT JOIN research_snapshots s ON s.ticker = c.ticker
+            GROUP BY
+              c.ticker,
+              c.company_name,
+              c.exchange,
+              c.last_viewed_at,
+              c.last_searched_at
+            ORDER BY c.last_searched_at DESC, c.ticker ASC
+            LIMIT ?
+          `)
+          .bind(limit)
+          .all<ResearchRecentRow>();
+
+        return Response.json({
+          items: result.results.map((row) => ({
+            ticker: row.ticker,
+            companyName: row.company_name,
+            exchange: row.exchange,
+            lastViewedAt: row.last_viewed_at,
+            lastSearchedAt: row.last_searched_at,
+            latestScrapedAt: row.latest_scraped_at,
+          })),
+        });
+      } catch (error) {
+        console.error(
+          "Recent research load error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+        return Response.json(
+          { error: "Unable to load recent research" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const researchTickerMatch = url.pathname.match(
+      /^\/api\/research\/(?!recent$|symbol-search$)([^/]+)$/
+    );
+
+    // --------------------------------------------------
+    // Get the newest saved snapshot for a ticker
+    // --------------------------------------------------
+    if (researchTickerMatch && request.method === "GET") {
+      const ticker = normalizeResearchTicker(researchTickerMatch[1]);
+      if (!ticker) {
+        return Response.json(
+          { error: "A valid ticker symbol is required" },
+          { status: 400 }
+        );
+      }
+
+      try {
+        const snapshot = await env.finance_dashboard_db
+          .prepare(`
+            SELECT
+              s.id,
+              s.ticker,
+              c.company_name,
+              c.exchange,
+              s.scraped_at,
+              s.schema_version,
+              s.research_json
+            FROM research_snapshots s
+            INNER JOIN research_companies c ON c.ticker = s.ticker
+            WHERE s.ticker = ?
+            ORDER BY s.scraped_at DESC, s.id DESC
+            LIMIT 1
+          `)
+          .bind(ticker)
+          .first<ResearchSnapshotRow>();
+
+        if (!snapshot) {
+          return Response.json(
+            { error: `No saved research is available for ${ticker}` },
+            { status: 404 }
+          );
+        }
+
+        let research: unknown;
+        try {
+          research = JSON.parse(snapshot.research_json) as unknown;
+        } catch {
+          console.error(
+            `Saved research JSON is corrupt for ${ticker}, snapshot ${snapshot.id}`
+          );
+          return Response.json(
+            { error: "Saved research data is unavailable" },
+            { status: 500 }
+          );
+        }
+
+        if (!isRecord(research) || Array.isArray(research)) {
+          console.error(
+            `Saved research JSON is invalid for ${ticker}, snapshot ${snapshot.id}`
+          );
+          return Response.json(
+            { error: "Saved research data is unavailable" },
+            { status: 500 }
+          );
+        }
+
+        return Response.json({
+          ticker: snapshot.ticker,
+          companyName: snapshot.company_name,
+          exchange: snapshot.exchange,
+          scrapedAt: snapshot.scraped_at,
+          schemaVersion: snapshot.schema_version,
+          research,
+        });
+      } catch (error) {
+        console.error(
+          "Saved research load error:",
+          error instanceof Error ? error.message : "Unknown error"
+        );
+        return Response.json(
+          { error: "Unable to load saved research" },
+          { status: 500 }
+        );
+      }
+    }
 
     // --------------------------------------------------
     // Search US-listed symbols for the Research lookahead

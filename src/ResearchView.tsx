@@ -157,6 +157,46 @@ interface ResearchResponse {
   scrapedAt: string;
 }
 
+interface ResearchRecentItem {
+  ticker: string;
+  companyName: string | null;
+  exchange: string | null;
+  lastViewedAt: string;
+  lastSearchedAt: string | null;
+  latestScrapedAt: string | null;
+}
+
+interface ResearchRecentResponse {
+  items: ResearchRecentItem[];
+}
+
+interface SavedResearchResponse {
+  ticker: string;
+  companyName: string | null;
+  exchange: string | null;
+  scrapedAt: string;
+  schemaVersion: number;
+  research: ResearchResponse;
+}
+
+interface SaveResearchResponse {
+  ok: boolean;
+  ticker: string;
+  snapshotId: number;
+  scrapedAt: string;
+}
+
+type ResearchQuoteSource = "alpaca" | "finnhub";
+
+interface ResearchQuote {
+  price: number;
+  source: ResearchQuoteSource;
+}
+
+interface ResearchQuoteResponse {
+  quotes: Record<string, ResearchQuote>;
+}
+
 interface GfScoreRadarDatum {
   metric: string;
   score: number;
@@ -598,8 +638,18 @@ function ResearchView() {
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchLoadingTicker, setResearchLoadingTicker] = useState("");
+  const [researchLoadingMode, setResearchLoadingMode] =
+    useState<"fresh" | "cached" | null>(null);
   const [researchError, setResearchError] = useState("");
   const [research, setResearch] = useState<ResearchResponse | null>(null);
+  const [researchSnapshotAt, setResearchSnapshotAt] = useState<string | null>(null);
+  const [researchPersistenceWarning, setResearchPersistenceWarning] = useState("");
+  const [recentResearch, setRecentResearch] = useState<ResearchRecentItem[]>([]);
+  const [recentResearchError, setRecentResearchError] = useState("");
+  const [recentResearchLoaded, setRecentResearchLoaded] = useState(false);
+  const [researchQuote, setResearchQuote] = useState<ResearchQuote | null>(null);
+  const [researchQuoteLoading, setResearchQuoteLoading] = useState(false);
+  const [researchQuoteError, setResearchQuoteError] = useState("");
   const [researchServiceStatus, setResearchServiceStatus] =
     useState<ResearchServiceStatus | null>(null);
   const [researchServiceAvailable, setResearchServiceAvailable] =
@@ -611,10 +661,40 @@ function ResearchView() {
   const [priceHistoryError, setPriceHistoryError] = useState("");
   const [selectedPriceRange, setSelectedPriceRange] =
     useState<PriceHistoryRange>("5Y");
-  const activeResearchTicker = useRef<string | null>(null);
+  const activeResearchRequestId = useRef(0);
+  const displayedResearchRequestId = useRef(0);
+  const recentResearchRequestId = useRef(0);
+  const autoLoadAttempted = useRef(false);
   const activePriceHistoryTicker = useRef<string | null>(null);
   const statusRequestInProgress = useRef(false);
   const researchViewMounted = useRef(false);
+
+  const fetchRecentResearch = useCallback(async () => {
+    const requestId = ++recentResearchRequestId.current;
+
+    try {
+      const response = await fetch("/api/research/recent?limit=20");
+      if (!response.ok) throw new Error("Recent research request failed");
+      const payload = (await response.json()) as ResearchRecentResponse;
+      if (
+        researchViewMounted.current &&
+        recentResearchRequestId.current === requestId
+      ) {
+        setRecentResearch(Array.isArray(payload.items) ? payload.items : []);
+        setRecentResearchError("");
+        setRecentResearchLoaded(true);
+      }
+    } catch (error) {
+      console.error("Unable to load recent research:", error);
+      if (
+        researchViewMounted.current &&
+        recentResearchRequestId.current === requestId
+      ) {
+        setRecentResearchError("Recent research is temporarily unavailable.");
+        setRecentResearchLoaded(true);
+      }
+    }
+  }, []);
 
   const fetchResearchStatus = useCallback(async () => {
     if (statusRequestInProgress.current) return;
@@ -639,6 +719,7 @@ function ResearchView() {
     researchViewMounted.current = true;
     const initialStatusTimeout = window.setTimeout(() => {
       void fetchResearchStatus();
+      void fetchRecentResearch();
     }, 0);
     const interval = window.setInterval(() => {
       void fetchResearchStatus();
@@ -649,7 +730,7 @@ function ResearchView() {
       window.clearTimeout(initialStatusTimeout);
       window.clearInterval(interval);
     };
-  }, [fetchResearchStatus]);
+  }, [fetchRecentResearch, fetchResearchStatus]);
 
   async function handleBrowserRestart() {
     if (browserRestarting) return;
@@ -805,15 +886,125 @@ function ResearchView() {
     }
   }
 
-  async function handleResearchSearch(selectedSymbol: string) {
-    const ticker = selectedSymbol.trim().toUpperCase();
-    if (activeResearchTicker.current === ticker) return;
+  async function handleResearchQuote(ticker: string, requestId: number) {
+    try {
+      const searchParams = new URLSearchParams({ symbols: ticker });
+      const response = await fetch(
+        `/api/brokerage/quotes?${searchParams.toString()}`,
+      );
+      const payload = (await response.json().catch(() => null)) as
+        | ResearchQuoteResponse
+        | { error?: string }
+        | null;
 
-    activeResearchTicker.current = ticker;
+      if (!response.ok) {
+        throw new Error(
+          payload && "error" in payload && payload.error
+            ? payload.error
+            : `Live price request failed (${response.status}).`,
+        );
+      }
+
+      const quote = payload && "quotes" in payload
+        ? payload.quotes[ticker]
+        : undefined;
+      if (
+        !quote ||
+        typeof quote.price !== "number" ||
+        !Number.isFinite(quote.price) ||
+        quote.price <= 0 ||
+        (quote.source !== "alpaca" && quote.source !== "finnhub")
+      ) {
+        throw new Error(`No live price is available for ${ticker}.`);
+      }
+
+      if (activeResearchRequestId.current === requestId) {
+        setResearchQuote(quote);
+        setResearchQuoteError("");
+      }
+    } catch (error) {
+      if (activeResearchRequestId.current === requestId) {
+        setResearchQuote(null);
+        setResearchQuoteError(
+          error instanceof Error ? error.message : "Live price is unavailable.",
+        );
+      }
+    } finally {
+      if (activeResearchRequestId.current === requestId) {
+        setResearchQuoteLoading(false);
+      }
+    }
+  }
+
+  function beginResearchLoad(ticker: string, mode: "fresh" | "cached") {
+    const requestId = ++activeResearchRequestId.current;
     setResearchLoading(true);
     setResearchLoadingTicker(ticker);
+    setResearchLoadingMode(mode);
     setResearchError("");
+    setResearchPersistenceWarning("");
+    setResearchSnapshotAt(null);
     setResearch(null);
+    setResearchQuote(null);
+    setResearchQuoteError("");
+    setResearchQuoteLoading(true);
+    void handleResearchQuote(ticker, requestId);
+    return requestId;
+  }
+
+  async function persistFreshResearch(
+    ticker: string,
+    freshResearch: ResearchResponse,
+    requestId: number,
+  ) {
+    try {
+      const response = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ticker,
+          companyName: freshResearch.companyName,
+          exchange: freshResearch.exchange,
+          research: freshResearch,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | SaveResearchResponse
+        | { error?: string }
+        | null;
+
+      if (!response.ok || !payload || !("scrapedAt" in payload)) {
+        throw new Error(
+          payload && "error" in payload && payload.error
+            ? payload.error
+            : `Snapshot save failed (${response.status}).`,
+        );
+      }
+
+      if (
+        researchViewMounted.current &&
+        displayedResearchRequestId.current === requestId
+      ) {
+        setResearchSnapshotAt(payload.scrapedAt);
+        setResearchPersistenceWarning("");
+      }
+      void fetchRecentResearch();
+    } catch (error) {
+      console.error(`Unable to save ${ticker} research snapshot:`, error);
+      if (
+        researchViewMounted.current &&
+        displayedResearchRequestId.current === requestId
+      ) {
+        setResearchPersistenceWarning(
+          "Research loaded, but the snapshot could not be saved.",
+        );
+      }
+    }
+  }
+
+  async function handleResearchSearch(selectedSymbol: string) {
+    const ticker = selectedSymbol.trim().toUpperCase();
+    const requestId = beginResearchLoad(ticker, "fresh");
 
     try {
       const response = await fetch(
@@ -828,10 +1019,14 @@ function ResearchView() {
       }
 
       const payload = (await response.json()) as ResearchResponse;
-      if (activeResearchTicker.current === ticker) setResearch(payload);
+      if (activeResearchRequestId.current === requestId) {
+        displayedResearchRequestId.current = requestId;
+        setResearch(payload);
+      }
+      void persistFreshResearch(ticker, payload, requestId);
     } catch (error) {
       const unavailable = error instanceof TypeError;
-      if (activeResearchTicker.current === ticker) {
+      if (activeResearchRequestId.current === requestId) {
         setResearchError(
           unavailable
             ? "Research service is unavailable. Start it with: npm run research:dev"
@@ -841,14 +1036,96 @@ function ResearchView() {
         );
       }
     } finally {
-      if (activeResearchTicker.current === ticker) {
-        activeResearchTicker.current = null;
+      if (activeResearchRequestId.current === requestId) {
         setResearchLoading(false);
         setResearchLoadingTicker("");
+        setResearchLoadingMode(null);
       }
       void fetchResearchStatus();
     }
   }
+
+  async function handleSavedResearch(item: ResearchRecentItem) {
+    const ticker = item.ticker.trim().toUpperCase();
+    const requestId = beginResearchLoad(ticker, "cached");
+
+    setSelectedTicker({
+      symbol: ticker,
+      displaySymbol: ticker,
+      description: item.companyName ?? ticker,
+      type: "Saved research",
+    });
+    setTickerInput(ticker);
+    setSuggestions([]);
+    setHighlightedIndex(-1);
+    setSymbolLookupError("");
+    void handlePriceHistorySearch(ticker);
+
+    try {
+      const response = await fetch(`/api/research/${encodeURIComponent(ticker)}`);
+      const payload = (await response.json().catch(() => null)) as
+        | SavedResearchResponse
+        | { error?: string }
+        | null;
+
+      if (!response.ok) {
+        const message =
+          response.status === 404
+            ? `No saved research is available for ${ticker}.`
+            : payload && "error" in payload && payload.error
+              ? payload.error
+              : `Saved research request failed (${response.status}).`;
+        throw new Error(message);
+      }
+      if (!payload || !("research" in payload)) {
+        throw new Error("Saved research response was malformed.");
+      }
+
+      if (activeResearchRequestId.current === requestId) {
+        displayedResearchRequestId.current = requestId;
+        setResearch(payload.research);
+        setResearchSnapshotAt(payload.scrapedAt);
+      }
+    } catch (error) {
+      if (activeResearchRequestId.current === requestId) {
+        setResearchError(
+          error instanceof Error
+            ? error.message
+            : `Could not load saved research for ${ticker}.`,
+        );
+      }
+    } finally {
+      if (activeResearchRequestId.current === requestId) {
+        setResearchLoading(false);
+        setResearchLoadingTicker("");
+        setResearchLoadingMode(null);
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (
+      autoLoadAttempted.current ||
+      !recentResearchLoaded ||
+      recentResearch.length === 0 ||
+      selectedTicker ||
+      research ||
+      researchLoading ||
+      tickerInput.trim()
+    ) {
+      return;
+    }
+
+    autoLoadAttempted.current = true;
+    void handleSavedResearch(recentResearch[0]);
+  }, [
+    recentResearch,
+    recentResearchLoaded,
+    research,
+    researchLoading,
+    selectedTicker,
+    tickerInput,
+  ]);
 
   const gfScoreRadarData = useMemo<GfScoreRadarDatum[] | null>(() => {
     const components = research?.guruFocus.gfScoreComponents;
@@ -988,6 +1265,36 @@ function ResearchView() {
           )}
           {symbolLookupError && <p className="research-inline-error">{symbolLookupError}</p>}
           </div>
+
+          {recentResearchLoaded && (
+            <section className="research-recent" aria-label="Recent research">
+              <span className="research-recent-label">Recent</span>
+              {recentResearch.length > 0 ? (
+                <div className="research-recent-list">
+                  {recentResearch.map((item) => (
+                    <button
+                      type="button"
+                      key={item.ticker}
+                      title={[
+                        item.companyName,
+                        item.latestScrapedAt
+                          ? `Latest snapshot: ${new Date(item.latestScrapedAt).toLocaleString()}`
+                          : null,
+                      ].filter(Boolean).join(" — ")}
+                      onClick={() => void handleSavedResearch(item)}
+                    >
+                      {item.ticker}
+                    </button>
+                  ))}
+                </div>
+              ) : !recentResearchError ? (
+                <span className="research-recent-empty">No recent research yet.</span>
+              ) : null}
+              {recentResearchError && (
+                <span className="research-recent-error">{recentResearchError}</span>
+              )}
+            </section>
+          )}
         </section>
 
         <section className="research-service-card">
@@ -1034,10 +1341,17 @@ function ResearchView() {
       {researchLoading && researchLoadingTicker && (
         <div className="research-loading-message" role="status">
           <span className="research-spinner" aria-hidden="true" />
-          <span>Loading {researchLoadingTicker} research...</span>
+          <span>
+            {researchLoadingMode === "cached"
+              ? `Loading saved ${researchLoadingTicker} research...`
+              : `Loading ${researchLoadingTicker} research...`}
+          </span>
         </div>
       )}
       {researchError && <p className="research-request-error">{researchError}</p>}
+      {researchPersistenceWarning && (
+        <p className="research-persistence-warning">{researchPersistenceWarning}</p>
+      )}
 
       {!research && selectedTicker &&
         (priceHistoryLoading || priceHistory || priceHistoryError) && (
@@ -1072,11 +1386,31 @@ function ResearchView() {
               <small>
                 Research updated {new Date(research.scrapedAt).toLocaleString()}
               </small>
+              {researchSnapshotAt && (
+                <small>
+                  GuruFocus snapshot: {new Date(researchSnapshotAt).toLocaleString()}
+                </small>
+              )}
             </div>
           </header>
 
           <div className="research-hero-grid">
-            <article><span>Current Price</span><strong>{formatCurrency(research.snapshot.price)}</strong></article>
+            <article>
+              <span>Current Price</span>
+              <strong>
+                {researchQuoteLoading
+                  ? "Loading..."
+                  : formatCurrency(researchQuote?.price ?? null)}
+              </strong>
+              {researchQuote && (
+                <p className="research-live-price-source">
+                  Live via {researchQuote.source === "alpaca" ? "Alpaca" : "Finnhub"}
+                </p>
+              )}
+              {researchQuoteError && !researchQuoteLoading && (
+                <p className="research-live-price-error">Live price unavailable</p>
+              )}
+            </article>
             <article className={`gf-score-card ${gfScoreTone}`}>
               <div className="research-card-label">
                 <span>GF Score</span>
